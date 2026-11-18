@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Streamlit configuration and secrets
+.streamlit/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# OpenCode local data
+.opencode/
+
+# Python caches and testing
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Private Excel workbooks
+*.xlsx
+*.xls
+*.xlsm
