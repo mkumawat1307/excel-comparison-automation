@@ -6,8 +6,10 @@ Uses streamlit.testing.v1.AppTest to simulate UI interactions.
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from streamlit.testing.v1 import AppTest
 
+from excel_compare.config import DEFAULT_MAX_FILE_SIZE_MB
 from excel_compare.models import (
     CellDiff,
     ComparisonResult,
@@ -35,6 +37,46 @@ def test_file_upload_section_renders() -> None:
         w for w in at.file_uploader if w.label.startswith('File A') or w.label.startswith('File B')
     ]
     assert len(file_uploaders) == 2
+
+
+def test_step1_upload_caption_states_50_mb_per_file() -> None:
+    """The Step 1 caption must state the real upload limit (50 MB per .xlsx file).
+
+    Regression test: the UI must not advertise the internal 200 MB decompressed
+    ZIP metadata limit as the upload file-size limit.
+    """
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    assert not at.exception
+
+    caption_text = ' '.join(c.value for c in at.caption)
+    assert 'Maximum file size: 50 MB per .xlsx file.' in caption_text
+    assert '200 MB' not in caption_text
+    assert '200MB' not in caption_text
+
+
+def test_streamlit_config_sets_max_upload_size_to_50() -> None:
+    """`.streamlit/config.toml` must cap Streamlit's uploader at 50 MB.
+
+    Streamlit's built-in uploader label ("<N>MB per file") is rendered from the
+    ``server.maxUploadSize`` option, whose default is 200 MB. A custom
+    ``st.caption`` cannot change that label, so the per-project config must set
+    the limit to 50 to match the application's own validation limit
+    (``DEFAULT_MAX_FILE_SIZE_MB``).
+    """
+    try:
+        import tomllib  # noqa: PLC0415
+    except ModuleNotFoundError:  # Python < 3.11
+        tomllib = pytest.importorskip('tomli')
+
+    config_path = APP_PATH.parents[1] / '.streamlit' / 'config.toml'
+    assert config_path.is_file(), f'missing Streamlit config: {config_path}'
+
+    with config_path.open('rb') as handle:
+        config = tomllib.load(handle)
+
+    assert config['server']['maxUploadSize'] == 50
+    assert config['server']['maxUploadSize'] == DEFAULT_MAX_FILE_SIZE_MB
 
 
 def test_no_files_shows_step1_only() -> None:
@@ -2558,3 +2600,242 @@ def test_streamlit_preview_multiple_blank_entries_interspersed():
     assert unchanged_df.loc[0, cols['File B – ID']] == '101'
     assert unchanged_df.loc[0, cols['File A – Code']] == 'XYZ'
     assert unchanged_df.loc[0, cols['File B – Code']] == 'XYZ'
+
+
+# ---------------------------------------------------------------------------
+# Temporary data cleanup (Finish & Clear Data / Start Over / uploader nonce)
+# ---------------------------------------------------------------------------
+
+_APP_OWNED_DEFAULTS = {
+    'file_a_bytes': None,
+    'file_b_bytes': None,
+    'file_a_name': None,
+    'file_b_name': None,
+    'file_a_hash': None,
+    'file_b_hash': None,
+    'file_a_obj': None,
+    'file_b_obj': None,
+    'sheet_a': None,
+    'sheet_b': None,
+    'sheets_a': [],
+    'sheets_b': [],
+    'loaded_a': None,
+    'loaded_b': None,
+    'columns_a': None,
+    'columns_b': None,
+    'key_pair_entries': [],
+    'compare_pair_entries': [],
+    'numeric_pairs': [],
+    'date_pairs': [],
+    'comparison_result': None,
+    'report_bytes': None,
+    'current_step': 1,
+    '_last_key_pairs': None,
+    '_last_compare_pairs': None,
+    '_last_numeric_pairs': None,
+    '_last_date_pairs': None,
+    '_auto_added_key_ids': set(),
+    '_auto_added_compare_ids': set(),
+}
+
+
+def _assert_app_owned_defaults(at: AppTest) -> None:
+    """Assert every application-owned key is back at its initial default."""
+    for key, expected in _APP_OWNED_DEFAULTS.items():
+        actual = at.session_state.get(key)
+        assert actual == expected, f'{key}: expected {expected!r}, got {actual!r}'
+
+
+def _click_button(at: AppTest, key: str) -> None:
+    for btn in at.button:
+        if btn.key == key:
+            btn.click()
+            return
+    raise AssertionError(f'button {key!r} not found')  # noqa: TRY003
+
+
+def _check_checkbox(at: AppTest, key: str) -> None:
+    for cb in at.checkbox:
+        if cb.key == key:
+            cb.check()
+            return
+    raise AssertionError(f'checkbox {key!r} not found')  # noqa: TRY003
+
+
+def _step6_app_with_report() -> AppTest:
+    """Build an AppTest at Step 6 with report bytes and app-owned data present."""
+    at = AppTest.from_file(APP_PATH)
+    at.session_state['current_step'] = 6
+    at.session_state['file_a_obj'] = object()
+    at.session_state['file_b_obj'] = object()
+    at.session_state['file_a_name'] = 'A.xlsx'
+    at.session_state['file_b_name'] = 'B.xlsx'
+    at.session_state['file_a_bytes'] = b'fake-a'
+    at.session_state['file_b_bytes'] = b'fake-b'
+    at.session_state['file_a_hash'] = 'hash-a'
+    at.session_state['file_b_hash'] = 'hash-b'
+    at.session_state['sheet_a'] = 'Sheet1'
+    at.session_state['sheet_b'] = 'Sheet1'
+    at.session_state['sheets_a'] = ['Sheet1']
+    at.session_state['sheets_b'] = ['Sheet1']
+    at.session_state['loaded_a'] = object()
+    at.session_state['loaded_b'] = object()
+    at.session_state['columns_a'] = ['ID', 'Amount']
+    at.session_state['columns_b'] = ['ID', 'Amount']
+    at.session_state['key_pair_entries'] = [{'id': 'k-1', 'file_a': 'ID', 'file_b': 'ID'}]
+    at.session_state['compare_pair_entries'] = [
+        {'id': 'c-1', 'file_a': 'Amount', 'file_b': 'Amount', 'type': 'Text'}
+    ]
+    at.session_state['comparison_result'] = object()
+    at.session_state['report_bytes'] = b'report-bytes'
+    at.run()
+    return at
+
+
+def test_download_and_report_available_before_confirmation() -> None:
+    """The report and download button stay available until the user confirms."""
+    at = _step6_app_with_report()
+    assert not at.exception
+    assert at.session_state.get('report_bytes') == b'report-bytes'
+    assert at.session_state.get('current_step') == 6
+    assert [d.key for d in at.download_button] == ['btn_download_report']
+
+
+def test_finish_clear_requires_confirmation() -> None:
+    """Clicking Finish & Clear Data without confirmation keeps all data."""
+    at = _step6_app_with_report()
+    _click_button(at, 'btn_finish_clear')
+    at.run()
+    assert not at.exception
+    assert at.session_state.get('report_bytes') == b'report-bytes'
+    assert at.session_state.get('current_step') == 6
+    assert any('confirmation' in w.value for w in at.warning)
+
+
+def test_finish_clear_confirmed_clears_all_session_data() -> None:
+    """Confirming Finish & Clear Data resets every app-owned key and Step 1."""
+    at = _step6_app_with_report()
+    _check_checkbox(at, 'confirm_finish_clear')
+    at.run()
+    _click_button(at, 'btn_finish_clear')
+    at.run()
+    assert not at.exception
+    _assert_app_owned_defaults(at)
+
+
+def test_start_over_requires_confirmation() -> None:
+    """Clicking Start Over without confirmation keeps all data."""
+    at = AppTest.from_file(APP_PATH)
+    at.session_state['file_a_obj'] = object()
+    at.session_state['file_a_bytes'] = b'keep-a'
+    at.run()
+    _click_button(at, 'btn_start_over')
+    at.run()
+    assert not at.exception
+    assert at.session_state.get('file_a_bytes') == b'keep-a'
+    assert at.session_state.get('file_a_obj') is not None
+    assert any('confirmation' in w.value for w in at.warning)
+
+
+@pytest.mark.parametrize('step', [1, 2, 3, 4, 5, 6])
+def test_start_over_confirmed_clears_from_every_step(step: int) -> None:
+    """Confirmed Start Over clears all data and returns to Step 1 from any step."""
+    at = AppTest.from_file(APP_PATH)
+    at.session_state['current_step'] = step
+    at.session_state['file_a_obj'] = object()
+    at.session_state['file_b_obj'] = object()
+    at.session_state['file_a_bytes'] = b'a'
+    at.session_state['file_b_bytes'] = b'b'
+    at.session_state['report_bytes'] = b'r'
+    at.run()
+    assert not at.exception
+    _check_checkbox(at, 'confirm_start_over')
+    at.run()
+    _click_button(at, 'btn_start_over')
+    at.run()
+    assert not at.exception
+    assert at.session_state.get('current_step') == 1
+    assert at.session_state.get('file_a_obj') is None
+    assert at.session_state.get('file_a_bytes') is None
+    assert at.session_state.get('file_b_obj') is None
+    assert at.session_state.get('file_b_bytes') is None
+    assert at.session_state.get('report_bytes') is None
+
+
+def test_clear_increments_nonce_and_rotates_uploader_keys() -> None:
+    """Cleanup preserves and increments the nonce, rotating uploader widget keys."""
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    assert at.session_state.get('_session_nonce') == 0
+    keys_before = sorted(w.key for w in at.file_uploader)
+    assert keys_before == ['uploader_file_a_0', 'uploader_file_b_0']
+
+    _check_checkbox(at, 'confirm_start_over')
+    at.run()
+    _click_button(at, 'btn_start_over')
+    at.run()
+
+    assert not at.exception
+    assert at.session_state.get('_session_nonce') == 1
+    keys_after = sorted(w.key for w in at.file_uploader)
+    assert keys_after == ['uploader_file_a_1', 'uploader_file_b_1']
+    assert keys_before != keys_after
+
+
+def test_old_uploaded_files_not_reingested_after_clear() -> None:
+    """Old uploaded files do not reappear after cleanup and further reruns."""
+    at = AppTest.from_file(APP_PATH)
+    at.session_state['file_a_obj'] = object()
+    at.session_state['file_a_bytes'] = b'old-a'
+    at.session_state['file_a_name'] = 'old-a.xlsx'
+    at.session_state['file_b_obj'] = object()
+    at.session_state['file_b_bytes'] = b'old-b'
+    at.session_state['file_b_name'] = 'old-b.xlsx'
+    at.run()
+    assert at.session_state.get('file_a_bytes') == b'old-a'
+
+    _check_checkbox(at, 'confirm_start_over')
+    at.run()
+    _click_button(at, 'btn_start_over')
+    at.run()
+
+    assert at.session_state.get('file_a_obj') is None
+    assert at.session_state.get('file_a_bytes') is None
+    # A further rerun must not resurrect the previously uploaded files.
+    at.run()
+    assert not at.exception
+    assert at.session_state.get('file_a_obj') is None
+    assert at.session_state.get('file_a_bytes') is None
+    assert at.session_state.get('file_b_obj') is None
+    assert at.session_state.get('file_b_bytes') is None
+
+
+def test_clear_session_resets_sheets_state() -> None:
+    """sheets_a/sheets_b are reset alongside the other app-owned state."""
+    at = _step6_app_with_report()
+    assert at.session_state.get('sheets_a') == ['Sheet1']
+    _check_checkbox(at, 'confirm_finish_clear')
+    at.run()
+    _click_button(at, 'btn_finish_clear')
+    at.run()
+    assert at.session_state.get('sheets_a') == []
+    assert at.session_state.get('sheets_b') == []
+
+
+def test_two_apptest_sessions_remain_isolated() -> None:
+    """Clearing one AppTest session must not affect another independent session."""
+    at1 = _step6_app_with_report()
+    at2 = _step6_app_with_report()
+
+    _check_checkbox(at1, 'confirm_finish_clear')
+    at1.run()
+    _click_button(at1, 'btn_finish_clear')
+    at1.run()
+
+    assert at1.session_state.get('report_bytes') is None
+    assert at1.session_state.get('current_step') == 1
+    # The second session is untouched.
+    assert at2.session_state.get('report_bytes') == b'report-bytes'
+    assert at2.session_state.get('current_step') == 6
+    assert not at2.exception
+    assert at2.session_state.get('_session_nonce') == 0

@@ -73,9 +73,13 @@ Excel Comparison Automation automates this workflow with configurable key mappin
 
 ### Generated Excel Report
 
-![Comparison Overview](docs/screenshots/report-overview.png)
+#### Records With Changes
 
-![Unchanged Records](docs/screenshots/report-unchanged.png)
+![Records With Changes](docs/screenshots/Records-With-Changes.png)
+
+#### Unchanged Records
+
+![Unchanged Records](docs/screenshots/Unchanged-Records.png)
 
 ## Installation
 
@@ -99,6 +103,8 @@ streamlit run app/streamlit_app.py
 ```
 
 Then open the URL Streamlit prints (typically `http://localhost:8501`) in your browser.
+
+The repository includes `.streamlit/config.toml`, which sets `server.maxUploadSize = 50` so Streamlit's built-in file uploader advertises the same 50 MB limit the application enforces. This is a Streamlit `[server]` setting and is read at server startup: **restart the Streamlit server after changing it**, because `[server]` options are not hot-reloaded.
 
 See [docs/INSTALLATION.md](docs/INSTALLATION.md) for full installation instructions, including prerequisites, virtual environment setup, and troubleshooting.
 
@@ -174,7 +180,7 @@ The resource limits above are then enforced on the real data actually encountere
 ## How to Run Tests
 
 ```powershell
-# Full test suite (303 tests)
+# Full test suite (331 tests)
 python -m pytest -q
 
 # Individual test file
@@ -207,9 +213,11 @@ See [docs/TESTING.md](docs/TESTING.md) for details.
 - All processing is local; no data is transmitted over the network.
 - Only `.xlsx` files are accepted, with a 50 MB compressed size limit and a 200 MB declared decompressed ZIP size limit per file.
 - Per-worksheet resource limits (250,000 rows, 1,000 columns, 5,000,000 cells) reject oversized input with a clear error instead of truncating it.
-- Uploaded files are validated for readability before processing.
+- Uploaded files are validated for readability before processing; the validation workbook and the report workbook are closed after use.
 - All report text cells use formula-injection protection (`data_type='s'`).
 - Source workbooks are opened read-only and never modified.
+- Temporary files used for validation and report generation are deleted in `finally` blocks.
+- Uploaded data and generated reports stay in the session until you clear them with **Finish & Clear Data** (Step 6) or **Start Over / Clear Data** (sidebar). Clearing releases the application's references to the data; it is not a secure memory wipe.
 - No API keys, passwords, or secrets are used or stored.
 
 See [docs/SECURITY.md](docs/SECURITY.md) for implemented protections and recommended future improvements.
@@ -222,6 +230,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for implemented protections and recomme
 - One worksheet per file per comparison run.
 - Exact-name column matching only (no fuzzy matching).
 - Comparison configuration is not persisted between browser sessions (Streamlit session state only).
+- Uploaded data and generated reports remain in the session until cleared (via **Finish & Clear Data** or **Start Over / Clear Data**) or until Streamlit evicts a disconnected session after its timeout (default 120 seconds). Clearing is reference release, not secure memory erasure.
 - Numeric and date comparison apply only to explicitly configured pairs; all others use text comparison.
 - Date parsing uses `dayfirst=False` only.
 - No CLI entry point; runs via `streamlit run app/streamlit_app.py`.

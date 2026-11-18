@@ -85,7 +85,8 @@ Project metadata: name `excel-comparison-automation`, version `0.1.0`.
 - Run the comparison and view a dashboard with summary metrics.
 - Preview results in five tabs: Unchanged Records, Records With Changes, Missing From File B, New Records in File B, Records Needing Attention.
 - Download a formatted six-sheet `.xlsx` report.
-- Run 303 unit tests with pytest; lint and format with ruff.
+- Clear all uploaded and generated data on demand with "Finish & Clear Data" (Step 6) or "Start Over / Clear Data" (sidebar), both confirmation-gated.
+- Run the unit test suite with pytest; lint and format with ruff.
 
 ## Current Limitations
 
@@ -94,6 +95,7 @@ Project metadata: name `excel-comparison-automation`, version `0.1.0`.
 - One worksheet per file per comparison run.
 - No fuzzy column matching; auto-suggestion pairs columns only when names are identical.
 - Comparison configuration is not persisted between browser sessions (Streamlit session state only).
+- Uploaded files and generated reports remain in the session until the user clears them; "Finish & Clear Data" and "Start Over / Clear Data" drop the app's references to that data (this is reference release, not secure memory erasure). After a browser disconnect, Streamlit evicts the session state after `server.disconnectedSessionTTL` (default 120 seconds).
 - The duplicate-key policy is fixed at `error` (duplicates are reported but do not block matching of unambiguous records); the `all` policy is explicitly unsupported.
 - Numeric and date comparison apply only to column pairs explicitly configured as Numeric or Date; all other pairs use text comparison (so `100` vs `100.0` are treated as different text values unless configured as Numeric).
 - Date parsing uses `dayfirst=False` only.

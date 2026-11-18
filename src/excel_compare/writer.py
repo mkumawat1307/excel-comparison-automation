@@ -368,14 +368,17 @@ def write_report(
         record-level sheets.
     """
     workbook: Workbook = Workbook()
-    # Remove default sheet.
-    workbook.remove(workbook.active)
+    try:
+        # Remove default sheet.
+        workbook.remove(workbook.active)
 
-    _write_summary_sheet(workbook, result)
-    _write_matching_records_sheet(workbook, result, config, df_a=df_a, df_b=df_b)
-    _write_mismatched_records_sheet(workbook, result, config)
-    _write_only_in_sheet(workbook, REPORT_SHEETS[3], result.only_in_a, 'A', config, df=df_a)
-    _write_only_in_sheet(workbook, REPORT_SHEETS[4], result.only_in_b, 'B', config, df=df_b)
-    _write_data_quality_sheet(workbook, result, config)
+        _write_summary_sheet(workbook, result)
+        _write_matching_records_sheet(workbook, result, config, df_a=df_a, df_b=df_b)
+        _write_mismatched_records_sheet(workbook, result, config)
+        _write_only_in_sheet(workbook, REPORT_SHEETS[3], result.only_in_a, 'A', config, df=df_a)
+        _write_only_in_sheet(workbook, REPORT_SHEETS[4], result.only_in_b, 'B', config, df=df_b)
+        _write_data_quality_sheet(workbook, result, config)
 
-    workbook.save(output_path)
+        workbook.save(output_path)
+    finally:
+        workbook.close()

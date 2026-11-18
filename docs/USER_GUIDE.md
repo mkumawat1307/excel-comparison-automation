@@ -100,8 +100,26 @@ Comparison columns are the fields whose values you want to check for changes. Ke
 1. On **Step 6: Download Report**, click **Download Excel Report**.
 2. The file `comparison_report.xlsx` is downloaded to your computer.
 3. Open it in Excel to review the six sheets.
+4. When you are done, tick the confirmation box and click **Finish & Clear Data** to remove the uploaded files, worksheets, mappings, results, and report data from this session. The report stays available until you confirm.
 
 See [REPORT_GUIDE.md](REPORT_GUIDE.md) for a detailed explanation of each sheet.
+
+---
+
+## Clearing Your Data
+
+You can remove all uploaded and generated data from the current session at any time:
+
+- **Finish & Clear Data** (Step 6) — after downloading the report. Tick the confirmation box first. The report and download button remain available until you confirm.
+- **Start Over / Clear Data** (sidebar) — available on every step, to discard an unfinished comparison. Tick the confirmation box first.
+
+Both actions return you to Step 1 with empty uploaders.
+
+Notes:
+
+- Clearing removes the application's references to the data. It is not a secure memory wipe, and a copy of the generated report may remain in the browser or in Streamlit's internal media store until the session ends.
+- The application cannot detect when a browser download has finished, so cleanup is only ever triggered by you, never automatically.
+- If you simply close the browser tab without clearing, Streamlit discards the session after a short timeout (default 120 seconds).
 
 ---
 

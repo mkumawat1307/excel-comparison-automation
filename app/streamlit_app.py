@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import logging
 import os
 import tempfile
 import uuid
@@ -39,6 +40,8 @@ from excel_compare.reporter import (
 from excel_compare.security import validate_uploaded_file
 from excel_compare.writer import write_report
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Session-state initialization
 # ---------------------------------------------------------------------------
@@ -57,6 +60,8 @@ def _init_session_state() -> None:
         'file_b_obj': None,
         'sheet_a': None,
         'sheet_b': None,
+        'sheets_a': [],
+        'sheets_b': [],
         'loaded_a': None,
         'loaded_b': None,
         'columns_a': None,
@@ -74,6 +79,7 @@ def _init_session_state() -> None:
         '_last_date_pairs': None,
         '_auto_added_key_ids': set(),
         '_auto_added_compare_ids': set(),
+        '_session_nonce': 0,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -84,6 +90,8 @@ def _reset_from_upload() -> None:
     """Reset all downstream state when either uploaded file changes."""
     st.session_state['sheet_a'] = None
     st.session_state['sheet_b'] = None
+    st.session_state['sheets_a'] = []
+    st.session_state['sheets_b'] = []
     st.session_state['loaded_a'] = None
     st.session_state['loaded_b'] = None
     st.session_state['columns_a'] = None
@@ -129,6 +137,34 @@ def _reset_from_comparison() -> None:
     st.session_state['report_bytes'] = None
 
 
+def _clear_session_data() -> None:
+    """Clear all application-owned session data and return to Step 1.
+
+    Intended to run as a Streamlit ``on_click`` callback, which executes before
+    widgets are instantiated on the following run. This drops the references
+    the app holds to uploaded bytes, uploaded file objects, loaded worksheets,
+    DataFrames, mappings, comparison results, report bytes, and widget values.
+
+    The uploader nonce is preserved and incremented so the file-uploader widget
+    keys rotate; previously uploaded files therefore cannot reappear on the
+    next rerun.
+
+    Note: this releases Python references. It is not a guarantee of secure
+    physical memory erasure.
+    """
+    nonce = st.session_state.get('_session_nonce', 0)
+    st.session_state.clear()
+    st.session_state['_session_nonce'] = nonce + 1
+
+
+def _request_clear(confirm_key: str) -> None:
+    """``on_click`` callback: clear data only after explicit confirmation."""
+    if st.session_state.get(confirm_key):
+        _clear_session_data()
+    else:
+        st.session_state['_clear_blocked'] = True
+
+
 def _compute_hash(data: bytes) -> str:
     """Return a SHA-256 hex digest of file bytes."""
     return hashlib.sha256(data).hexdigest()
@@ -172,8 +208,8 @@ def _validate_upload(uploaded_file) -> Optional[bytes]:
         if tmp_path is not None:
             try:
                 os.unlink(tmp_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning('Failed to delete temporary upload file %s: %s', tmp_path, exc)
 
     return raw
 
@@ -329,8 +365,8 @@ def _run_comparison() -> None:
         if tmp_path is not None:
             try:
                 os.unlink(tmp_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning('Failed to delete temporary report file %s: %s', tmp_path, exc)
 
     st.session_state['comparison_result'] = comparison_result
     st.session_state['report_bytes'] = report_bytes
@@ -339,15 +375,19 @@ def _run_comparison() -> None:
 def _render_step1_upload() -> None:
     """Step 1: Upload files."""
     st.subheader('Step 1: Upload Excel Files')
-    st.caption('Upload two Excel (.xlsx) files to compare. Maximum 50 MB per file.')
+    st.caption(
+        'Upload two Excel (.xlsx) files to compare. Maximum file size: 50 MB per .xlsx file.'
+    )
 
     col_a, col_b = st.columns(2)
+
+    nonce = st.session_state.get('_session_nonce', 0)
 
     with col_a:
         file_a = st.file_uploader(
             'File A (old/existing data)',
             type=['xlsx'],
-            key='uploader_file_a',
+            key=f'uploader_file_a_{nonce}',
         )
         if file_a is not None and st.session_state.get('file_a_obj') is not file_a:
             raw = _validate_upload(file_a)
@@ -362,7 +402,7 @@ def _render_step1_upload() -> None:
         file_b = st.file_uploader(
             'File B (new/current data)',
             type=['xlsx'],
-            key='uploader_file_b',
+            key=f'uploader_file_b_{nonce}',
         )
         if file_b is not None and st.session_state.get('file_b_obj') is not file_b:
             raw = _validate_upload(file_b)
@@ -1130,6 +1170,23 @@ def _render_step6_download() -> None:
         key='btn_download_report',
     )
 
+    st.divider()
+    st.markdown('**Finish and clear data**')
+    st.caption(
+        'Download the report first. Clearing removes the uploaded files, loaded '
+        'worksheets, mappings, comparison results, and report data from this session.'
+    )
+    st.checkbox(
+        'I have downloaded the report and want to clear all data.',
+        key='confirm_finish_clear',
+    )
+    st.button(
+        'Finish & Clear Data',
+        key='btn_finish_clear',
+        on_click=_request_clear,
+        args=('confirm_finish_clear',),
+    )
+
 
 def main() -> None:
     st.set_page_config(
@@ -1145,6 +1202,20 @@ def main() -> None:
     )
 
     _init_session_state()
+
+    if st.session_state.pop('_clear_blocked', False):
+        st.warning('Tick the confirmation box before clearing data.')
+
+    with st.sidebar:
+        st.subheader('Session')
+        st.caption('Discard the current comparison and clear all uploaded data.')
+        st.checkbox('Confirm: clear all data', key='confirm_start_over')
+        st.button(
+            'Start Over / Clear Data',
+            key='btn_start_over',
+            on_click=_request_clear,
+            args=('confirm_start_over',),
+        )
 
     current_step = st.session_state.get('current_step', 1)
 

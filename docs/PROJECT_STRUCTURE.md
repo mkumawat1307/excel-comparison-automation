@@ -140,14 +140,14 @@ Key functions:
 - `_write_mismatched_records_sheet(workbook, result, config)` — Records With Changes sheet.
 - `_write_only_in_sheet(workbook, sheet_name, rows, side, config, df=None)` — Missing From File B / New Records in File B sheets (complete original record, original column names, no prefix).
 - `_write_data_quality_sheet(workbook, result, config)` — Records Needing Attention sheet.
-- `write_report(result, output_path, config, df_a=None, df_b=None)` — writes all six sheets to the output `.xlsx` file. Backward compatible: `df_a`/`df_b` are optional.
+- `write_report(result, output_path, config, df_a=None, df_b=None)` — writes all six sheets to the output `.xlsx` file and closes the workbook in `finally`. Backward compatible: `df_a`/`df_b` are optional.
 
 ### `src/excel_compare/security.py`
 
 Security validation for uploaded Excel files.
 
 Key functions:
-- `validate_uploaded_file(file_path)` — validates existence, not-a-directory, `.xlsx` extension (case-insensitive), non-empty, size ≤ 50 MB, readability via openpyxl. Returns resolved `Path` or raises `SecurityError`.
+- `validate_uploaded_file(file_path)` — validates existence, not-a-directory, `.xlsx` extension (case-insensitive), non-empty, size ≤ 50 MB, readability via openpyxl (the workbook is closed in `finally`). Returns resolved `Path` or raises `SecurityError`.
 - `safe_copy_to_temp(source_path, temp_dir)` — copies a validated file to an isolated temp location without modifying the original.
 
 ### `app/streamlit_app.py`
@@ -155,14 +155,16 @@ Key functions:
 Streamlit entry point. Six-step wizard UI for non-technical users.
 
 Key functions:
-- `_init_session_state()` — initializes all session-state keys.
-- `_validate_upload(uploaded_file)` — validates uploaded file (size, extension, readability).
+- `_init_session_state()` — initializes all session-state keys, including the uploader nonce (`_session_nonce`).
+- `_validate_upload(uploaded_file)` — validates uploaded file (size, extension, readability) using a temp copy that is deleted in `finally`.
 - `_load_worksheet(uploaded_file, sheet_name)` — loads a worksheet from session-state bytes.
+- `_clear_session_data()` — clears all application-owned session state via `st.session_state.clear()` and increments the uploader nonce; intended as an `on_click` callback.
+- `_request_clear(confirm_key)` — `on_click` callback that clears data only after explicit confirmation.
 - `_build_comparison_config()` — builds `ComparisonConfig` from session-state mappings.
 - `_run_comparison()` — runs the full pipeline: match, compare, build report, write to temp file, store bytes in session state.
-- `_render_step1_upload()` through `_render_step6_download()` — renders each wizard step.
+- `_render_step1_upload()` through `_render_step6_download()` — renders each wizard step. Step 6 also offers "Finish & Clear Data"; the file uploaders are keyed by the session nonce.
 - `_render_results_preview(result)` — renders the five results tabs (Unchanged Records, Records With Changes, Missing From File B, New Records in File B, Records Needing Attention).
-- `main()` — page config, step indicator, step navigation.
+- `main()` — page config, sidebar "Start Over / Clear Data", step indicator, step navigation.
 
 ## Tests
 
@@ -173,12 +175,12 @@ Key functions:
 | `tests/unit/test_matcher.py` | Single/composite key matching, collision-safe tuples, missing keys, duplicates (non-blocking), invalid keys, mapping validation, auto-pairs, row accounting, schema diff. |
 | `tests/unit/test_comparer.py` | Text/numeric/date comparison, tolerance, missing vs present, empty strings, case sensitivity, whitespace, renamed pairs, original value preservation. |
 | `tests/unit/test_reporter.py` | Report assembly, status classification, summary metrics, schema diff preservation, plain-language labels, per-file key values. |
-| `tests/unit/test_writer.py` | Six sheet names, heading conventions, Option B layout, complete original records, formula injection, key value preservation, backward compatibility. |
+| `tests/unit/test_writer.py` | Six sheet names, heading conventions, Option B layout, complete original records, formula injection, key value preservation, backward compatibility, workbook cleanup. |
 | `tests/unit/test_models.py` | DiffStatus values and labels, model defaults, immutability. |
-| `tests/unit/test_security.py` | File existence, directory rejection, unsupported extension, empty file, unreadable workbook. |
-| `tests/unit/test_streamlit_app.py` | App loading, widget rendering, session state, key/compare pair add/remove, navigation persistence, dashboard signals, end-to-end comparison. |
+| `tests/unit/test_security.py` | File existence, directory rejection, unsupported extension, empty file, unreadable workbook, workbook close, file-handle release. |
+| `tests/unit/test_streamlit_app.py` | App loading, widget rendering, session state, key/compare pair add/remove, navigation persistence, dashboard signals, end-to-end comparison, temporary data cleanup (Finish & Clear / Start Over), uploader nonce rotation, upload caption + `.streamlit/config.toml` maxUploadSize. |
 
-Total: 303 tests (as of the current release), all passing.
+Total: 331 tests (as of the current release), all passing.
 
 ## Configuration File
 
@@ -188,3 +190,6 @@ Total: 303 tests (as of the current release), all passing.
 - Runtime dependencies: `pandas>=2.0.0`, `openpyxl>=3.1.0`, `streamlit>=1.30.0`.
 - Dev dependencies (extra `dev`): `pytest>=8.0.0`, `ruff>=0.5.0`.
 - Ruff config: `line-length = 100`, `target-version = "py310"`, selects `E`, `F`, `I`, `B`, `C4`, `PLC`, `TRY`, ignores `E501`.
+
+`.streamlit/config.toml` defines the Streamlit server configuration:
+- `[server] maxUploadSize = 50` — makes Streamlit's built-in file uploader advertise and enforce the same 50 MB limit as the application (`DEFAULT_MAX_FILE_SIZE_MB`). Streamlit's default is 200 MB. This is a `[server]` option read at startup, so a **Streamlit server restart** is required after changing it. It is unrelated to the separate 200 MB declared-decompressed-ZIP security limit (`MAX_DECOMPRESSED_SIZE_BYTES`).

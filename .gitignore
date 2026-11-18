@@ -9,7 +9,10 @@ venv/
 env/
 
 # Streamlit configuration and secrets
-.streamlit/
+# Keep the shared server config under version control, but ignore secrets
+# (e.g. secrets.toml) and any other local Streamlit state.
+.streamlit/*
+!.streamlit/config.toml
 
 # Environment variables and secrets
 .env

@@ -1,0 +1,16 @@
+# Streamlit server configuration.
+#
+# Keep Streamlit's built-in file-uploader limit consistent with the
+# application's own 50 MB validation limit (DEFAULT_MAX_FILE_SIZE_MB in
+# src/excel_compare/config.py). Streamlit's default is 200 MB, which is why
+# the uploader would otherwise advertise "200MB per file".
+#
+# This is the upload-size limit only. It does not change the separate 200 MB
+# declared-decompressed-ZIP security limit enforced by
+# validate_uploaded_file() (MAX_DECOMPRESSED_SIZE_BYTES).
+#
+# config.toml is read at server startup and is NOT hot-reloaded, so a Streamlit
+# server restart is required for changes here to take effect.
+
+[server]
+maxUploadSize = 50

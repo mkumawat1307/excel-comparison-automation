@@ -30,6 +30,7 @@ The decompressed-size guard sums `ZipInfo.file_size` from the archive's central 
 - Rejects files larger than 50 MB with an `st.error` message.
 - Rejects files that do not end in `.xlsx`.
 - Calls `validate_uploaded_file()` on a temporary copy for the readability check.
+- Deletes the temporary copy in a `finally` block. `validate_uploaded_file()` closes the workbook handle it opens, so the file can be deleted on Windows as well; a failed deletion is logged rather than silently ignored.
 
 ### 3. Formula-Injection Protection (`writer.py`)
 
@@ -46,6 +47,7 @@ All untrusted text values written to the Excel report are written as explicit Op
 - The loader never modifies the source DataFrame (`normalize_dataframe()` returns a copy).
 - `safe_copy_to_temp()` copies validated files to a temp location; the original is never modified.
 - Uploaded file bytes are stored in Streamlit session state and written to a temporary file only for the report-writing step, then cleaned up.
+- The workbook opened by `validate_uploaded_file()` for the readability check is closed in a `finally` block; the workbook created by `write_report()` is closed in a `finally` block.
 
 ### 5. Environment Variables and Secrets
 
@@ -87,6 +89,22 @@ Excel's `<dimension>` element declares a worksheet's used range, but this metada
 
 Before iterating, the loader calls `worksheet.reset_dimensions()`, which clears the cached dimension so `iter_rows()` walks the actual worksheet XML and sizes each row to its true last cell. This neutralizes inflated, underreported, and missing dimensions, after which the resource limits in section 7 are enforced on the real data encountered. A worksheet that exceeds a limit is rejected with a clear `LoadError` rather than being silently truncated.
 
+### 9. Temporary Data Cleanup and Session Reset (`streamlit_app.py`)
+
+Uploaded data and generated report data are held only in the Streamlit session and local temporary files, and are released by explicit user actions:
+
+- **Temp files:** `_validate_upload()` and `_run_comparison()` each write to a `NamedTemporaryFile(delete=False)` and delete it in a `finally` block. Failures to delete are logged (via the module logger), not silently swallowed.
+- **Finish & Clear Data (Step 6):** after downloading the report, the user can confirm and clear all data. The report and download button remain available until the user confirms.
+- **Start Over / Clear Data (sidebar):** available from every step, also confirmation-gated, to discard an unfinished comparison.
+- Both actions call `_clear_session_data()`, which calls `st.session_state.clear()` and then increments an uploader nonce (`_session_nonce`). Incrementing the nonce rotates the file-uploader widget keys so previously uploaded files cannot reappear on the next rerun.
+
+Limitations:
+
+- Clearing drops Python references to the data. It is **not** secure physical memory erasure; copies may remain in the Python heap, in Streamlit internals, or in the operating system until they are reclaimed.
+- Streamlit's media-file layer may retain a copy of the rendered download bytes for the session.
+- The server cannot detect that a browser download completed, so cleanup is never triggered automatically by the download button.
+- While a browser tab stays connected, session state persists indefinitely; after disconnect, Streamlit retains the session for `server.disconnectedSessionTTL` (default 120 seconds) before evicting it. This is a deployment setting, not an application-level cleanup.
+
 ## Security Tests
 
 `tests/unit/test_security.py` covers:
@@ -98,6 +116,8 @@ Before iterating, the loader calls `worksheet.reset_dimensions()`, which clears 
 - `test_validate_unreadable_workbook` — `SecurityError` (`not a valid ZIP archive`) for non-Excel content with an `.xlsx` extension.
 - `test_validate_decompressed_size_within_limit` — a normal workbook passes the decompressed-size check.
 - `test_validate_decompressed_size_exceeded` — a ZIP-bomb style archive whose declared decompressed size exceeds 200 MB is rejected.
+- `test_validate_closes_workbook` — the workbook opened for the readability check is closed.
+- `test_validate_releases_file_handle_for_deletion` — after validation the file can be deleted (no leaked file handle).
 
 `tests/unit/test_loader.py` additionally covers the worksheet resource limits and dimension protection:
 
@@ -119,7 +139,7 @@ The following are NOT currently implemented. They are listed for awareness only;
 | File content sanitization | Remove external links, embedded objects, or macros from workbooks before reading. | Not implemented (`.xlsm` already rejected by extension check) |
 | Output file integrity | Add checksums or digital signatures to generated reports. | Not implemented |
 | Access control | User authentication, role-based access, or audit logging. | Not implemented (single-user local tool) |
-| Secure temporary file cleanup | Use `tempfile` with `delete=True` and stricter permissions on temp files. | Partially implemented (temp files are unlinked after use) |
+| Secure temporary file cleanup | Use `tempfile` with `delete=True` and stricter permissions on temp files. | Partially implemented (temp files are unlinked in `finally`; failures are logged. No secure overwrite.) |
 | Content security policy | Streamlit runs without CSP hardening by default. | Not implemented |
 | Dependency vulnerability scanning | Automated scanning of `pandas`, `openpyxl`, `streamlit` for known vulnerabilities. | Not implemented |
 
@@ -128,4 +148,5 @@ The following are NOT currently implemented. They are listed for awareness only;
 - The application processes data entirely in memory and local temp files. No data leaves the machine.
 - Generated reports contain the same data as the source files (plus row references). Treat the output report with the same confidentiality as the source Excel files.
 - Temp files created during report generation are deleted after the report bytes are read, but no secure overwrite is performed.
+- "Finish & Clear Data" and "Start Over / Clear Data" drop the app's references to uploaded data, loaded worksheets, mappings, comparison results, and report bytes. This is reference release, not secure memory erasure.
 - If your source files contain personally identifiable information (PII), financial data, or health information, handle the downloaded report according to your organization's data-handling policies.

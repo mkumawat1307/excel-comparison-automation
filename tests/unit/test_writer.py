@@ -7,7 +7,9 @@ from pathlib import Path
 
 import openpyxl
 import pandas as pd
+import pytest
 
+import excel_compare.writer as writer_module
 from excel_compare.config import REPORT_SHEETS
 from excel_compare.models import (
     CellDiff,
@@ -2294,3 +2296,60 @@ def test_writer_formula_injection_with_numeric_values(tmp_path: Path):
     assert row[col_idx['name']] == '=1+1'
     cell = ws.cell(row=2, column=col_idx['name'] + 1)
     assert cell.data_type == 's'
+
+
+# ---------------------------------------------------------------------------
+# Workbook resource cleanup
+# ---------------------------------------------------------------------------
+
+
+def test_write_report_closes_workbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """write_report closes its workbook after a successful save."""
+    instances: list = []
+
+    class TrackingWorkbook(openpyxl.Workbook):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.closed = False
+            instances.append(self)
+
+        def close(self) -> None:
+            self.closed = True
+            super().close()
+
+    monkeypatch.setattr(writer_module, 'Workbook', TrackingWorkbook)
+
+    config = _basic_config()
+    result = _matched_result_with_df(config)
+    write_report(result, str(tmp_path / 'report.xlsx'), config)
+
+    assert instances, 'write_report should create a workbook'
+    assert all(wb.closed for wb in instances)
+
+
+def test_write_report_closes_workbook_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """write_report closes its workbook even when saving fails."""
+    instances: list = []
+
+    class FailingWorkbook(openpyxl.Workbook):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.closed = False
+            instances.append(self)
+
+        def save(self, *args, **kwargs) -> None:
+            raise OSError('simulated save failure')  # noqa: TRY003
+
+        def close(self) -> None:
+            self.closed = True
+            super().close()
+
+    monkeypatch.setattr(writer_module, 'Workbook', FailingWorkbook)
+
+    config = _basic_config()
+    result = _matched_result_with_df(config)
+    with pytest.raises(OSError, match='simulated save failure'):
+        write_report(result, str(tmp_path / 'report.xlsx'), config)
+
+    assert instances, 'write_report should create a workbook'
+    assert all(wb.closed for wb in instances)

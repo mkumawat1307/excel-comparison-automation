@@ -62,12 +62,18 @@ def validate_uploaded_file(file_path: Union[str, Path]) -> Path:
         ) from exc
 
     # Readability check — attempt to load the workbook without modifying it
+    workbook = None
     try:
-        openpyxl.load_workbook(path, read_only=True, data_only=True)
+        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 — any workbook error is a security/load failure
         raise SecurityError(  # noqa: TRY003
             f'File is not a readable Excel workbook: {path} ({exc})'
         ) from exc
+    finally:
+        # Release the underlying archive/file handle so the caller can delete
+        # the file (required on Windows, where an open handle blocks deletion).
+        if workbook is not None:
+            workbook.close()
 
     return path
 

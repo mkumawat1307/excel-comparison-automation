@@ -13,8 +13,8 @@ Excel Comparison Automation uses pytest for unit testing and ruff for linting an
 | `tests/unit/test_reporter.py` | `reporter.py` | Basic report assembly, mismatched records, duplicate vs missing-key distinction, schema diff preservation, only-in-A/only-in-B, summary row accounting, renamed key/compare pairs, empty compare pairs → matched-not-compared, unmapped columns not counted as mismatches, per-file key value preservation, summary labels. |
 | `tests/unit/test_writer.py` | `writer.py` | Six sheet names unchanged, data quality sheet headings (`Problem Found`, `File`, `Excel Row`, `Related Column Values`, no `Record ID`), original value preservation, formula injection (`=`, `+`, `-`, `@` stored as literal text with `data_type='s'`), key values populated on Unchanged Records, composite keys, renamed keys, backward compatibility without key_values, Records With Changes headings, formula injection on mismatched sheet, Missing / New sheets use original column names (no prefix, no `Record Status`), Comparison Overview plain-language labels, per-file key columns regression, complete-record regression, column heading regression (en dash, original names preserved), Excel row heading consistency, formula injection still protected. |
 | `tests/unit/test_models.py` | `models.py` | DiffStatus enum values and plain-language labels, CellDiff/RowDiff defaults, ComparisonResult summary default, DataQualityIssue key_values defaults. |
-| `tests/unit/test_security.py` | `security.py` | Nonexistent file, directory path, unsupported extension (`.csv`), empty file, unreadable workbook. |
-| `tests/unit/test_streamlit_app.py` | `streamlit_app.py` | App loads without errors, file upload widgets render, session state initialized, navigation steps, no crashes on rerun, Step 3/4 column-pair iteration, auto-suggestion checkboxes, add/remove pairs, duplicate prevention, type changes, navigation persistence, dashboard four signals (completed, differences, not-compared separate, data quality), end-to-end comparison with widget-selected keys, heading and complete-record regression tests for Streamlit. |
+| `tests/unit/test_security.py` | `security.py` | Nonexistent file, directory path, unsupported extension (`.csv`), empty file, unreadable workbook, validation workbook closed, file handle released for deletion. |
+| `tests/unit/test_streamlit_app.py` | `streamlit_app.py` | App loads without errors, file upload widgets render, session state initialized, navigation steps, no crashes on rerun, Step 3/4 column-pair iteration, auto-suggestion checkboxes, add/remove pairs, duplicate prevention, type changes, navigation persistence, dashboard four signals (completed, differences, not-compared separate, data quality), end-to-end comparison with widget-selected keys, heading and complete-record regression tests for Streamlit, temporary data cleanup (Finish & Clear Data / Start Over confirmation, all app-owned state reset, uploader nonce rotation, old files not re-ingested, session isolation), Step 1 upload caption and `.streamlit/config.toml` `server.maxUploadSize = 50`. |
 
 Shared fixture (`tests/conftest.py`):
 - `tmp_dir` — temporary directory path.
@@ -30,7 +30,7 @@ All commands are run from the project root directory with the virtual environmen
 python -m pytest -q
 ```
 
-Expected result: all tests pass. As of the current release: **303 passed, 0 failed**.
+Expected result: all tests pass. As of the current release: **331 passed, 0 failed**.
 
 ### Run an individual test file
 

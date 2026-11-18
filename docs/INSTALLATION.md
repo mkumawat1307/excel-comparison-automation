@@ -107,6 +107,19 @@ Streamlit will start a local web server and print a URL (typically `http://local
 
 To stop the application, press `Ctrl + C` in the PowerShell terminal.
 
+### Upload size limit (`server.maxUploadSize`)
+
+The repository ships `.streamlit/config.toml` with:
+
+```toml
+[server]
+maxUploadSize = 50
+```
+
+This makes Streamlit's built-in file uploader display and enforce the same 50 MB limit that the application itself enforces (`DEFAULT_MAX_FILE_SIZE_MB`). Streamlit's default is 200 MB, which is why the uploader would otherwise advertise "200MB per file".
+
+`server.maxUploadSize` is a Streamlit `[server]` setting read at server startup. **After changing `.streamlit/config.toml`, stop the Streamlit server (`Ctrl + C`) and start it again** — `[server]` options are not hot-reloaded. (This limit is unrelated to the separate 200 MB declared-decompressed-ZIP security limit enforced by `validate_uploaded_file()`.)
+
 ## How to Run Tests
 
 All tests are written with pytest and live in `tests/unit/`.
@@ -117,7 +130,7 @@ All tests are written with pytest and live in `tests/unit/`.
 python -m pytest -q
 ```
 
-Expected output: all tests pass (303 tests as of the current release).
+Expected output: all tests pass (331 tests as of the current release).
 
 ### Run an individual test file
 

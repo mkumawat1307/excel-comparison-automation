@@ -81,3 +81,43 @@ def test_validate_decompressed_size_exceeded(tmp_path: Path) -> None:
 
     with pytest.raises(SecurityError, match='decompressed size exceeds maximum'):
         validate_uploaded_file(oversized)
+
+
+def test_validate_closes_workbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate_uploaded_file must close the workbook it opens for readability."""
+    path = tmp_path / 'valid.xlsx'
+    wb = openpyxl.Workbook()
+    wb.active['A1'] = 'hello'
+    wb.save(path)
+    wb.close()
+
+    class _FakeWorkbook:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake = _FakeWorkbook()
+    monkeypatch.setattr(openpyxl, 'load_workbook', lambda *args, **kwargs: fake)
+
+    result = validate_uploaded_file(path)
+    assert result == path
+    assert fake.closed is True
+
+
+def test_validate_releases_file_handle_for_deletion(tmp_path: Path) -> None:
+    """After validation the file handle is released, so the file can be deleted.
+
+    Regression test for Windows, where an open workbook handle blocks deletion
+    with PermissionError.
+    """
+    path = tmp_path / 'valid.xlsx'
+    wb = openpyxl.Workbook()
+    wb.active['A1'] = 'hello'
+    wb.save(path)
+    wb.close()
+
+    validate_uploaded_file(path)
+    path.unlink()
+    assert not path.exists()
