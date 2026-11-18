@@ -180,7 +180,7 @@ The resource limits above are then enforced on the real data actually encountere
 ## How to Run Tests
 
 ```powershell
-# Full test suite (333 tests)
+# Full test suite (338 tests)
 python -m pytest -q
 
 # Individual test file

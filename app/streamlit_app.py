@@ -14,6 +14,7 @@ import tempfile
 import uuid
 from typing import Optional
 
+import pandas as pd
 import streamlit as st
 
 from excel_compare.comparer import compare_rows
@@ -988,6 +989,21 @@ def _render_step5_run() -> None:
         _render_results_preview(result)
 
 
+def _display_value(value) -> str:
+    """Render a single cell value as display text for preview tables.
+
+    The Records With Changes preview gathers values from many different source
+    columns into one Previous Value / Updated Value column, so the resulting
+    column mixes native scalar types (numpy bool/int/float, str). PyArrow cannot
+    serialize such a mixed ``object`` column into one Arrow type, so these two
+    columns are rendered as strings. Missing values (None, NaN, pd.NA, NaT)
+    become empty strings; everything else uses its plain string form.
+    """
+    if value is None or pd.isna(value):
+        return ''
+    return str(value)
+
+
 def _render_results_preview(result) -> None:
     """Display comparison results preview."""
     key_pair_entries = st.session_state.get('key_pair_entries', [])
@@ -1045,7 +1061,7 @@ def _render_results_preview(result) -> None:
             row_dict['Excel Row (File B)'] = row_diff.excel_row_b or ''
             rows.append(row_dict)
         if rows:
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width='stretch')
         else:
             st.info('No records with no changes.')
 
@@ -1065,14 +1081,14 @@ def _render_results_preview(result) -> None:
                             row_diff.key_values_b[i] if i < len(row_diff.key_values_b or ()) else ''
                         )
                     row_dict['Column Name (File A)'] = cell_diff.column_a
-                    row_dict['Previous Value'] = cell_diff.value_a
+                    row_dict['Previous Value'] = _display_value(cell_diff.value_a)
                     row_dict['Column Name (File B)'] = cell_diff.column_b
-                    row_dict['Updated Value'] = cell_diff.value_b
+                    row_dict['Updated Value'] = _display_value(cell_diff.value_b)
                     row_dict['Excel Row (File A)'] = cell_diff.excel_row_a or ''
                     row_dict['Excel Row (File B)'] = cell_diff.excel_row_b or ''
                     rows.append(row_dict)
         if rows:
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width='stretch')
         else:
             st.info('No records with changes.')
 
@@ -1087,7 +1103,7 @@ def _render_results_preview(result) -> None:
             row_dict['Excel Row (File A)'] = row_diff.excel_row_a or ''
             rows.append(row_dict)
         if rows:
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width='stretch')
         else:
             st.info('No records missing from File B.')
 
@@ -1102,7 +1118,7 @@ def _render_results_preview(result) -> None:
             row_dict['Excel Row (File B)'] = row_diff.excel_row_b or ''
             rows.append(row_dict)
         if rows:
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width='stretch')
         else:
             st.info('No new records in File B.')
 
@@ -1126,7 +1142,7 @@ def _render_results_preview(result) -> None:
             )
             rows.append(row_dict)
         if rows:
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width='stretch')
         else:
             st.info('No records needing attention.')
 

@@ -3,9 +3,13 @@
 Uses streamlit.testing.v1.AppTest to simulate UI interactions.
 """
 
+import importlib.util
+import logging
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -2729,6 +2733,228 @@ def test_streamlit_unchanged_preview_only_configured_columns() -> None:
     assert preview_row['Record Status'] == 'No changes'
     assert preview_row['Excel Row (File A)'] == 2
     assert preview_row['Excel Row (File B)'] == 2
+
+
+# ---------------------------------------------------------------------------
+# Records With Changes preview — Arrow-safe mixed-type display values
+# ---------------------------------------------------------------------------
+# The preview gathers values from different source columns into one Previous
+# Value / Updated Value column, so those columns mix native scalar types
+# (numpy bool/int/float, str) that PyArrow cannot serialize into a single Arrow
+# column. They are rendered as display strings. These tests exercise the
+# conversion helper directly with PyArrow and the full app end-to-end.
+
+_APP_MODULE = None
+
+
+def _app_module():
+    """Import the Streamlit app module once (safe: main() is guarded)."""
+    global _APP_MODULE
+    if _APP_MODULE is None:
+        spec = importlib.util.spec_from_file_location('_app_under_test', APP_PATH)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _APP_MODULE = module
+    return _APP_MODULE
+
+
+def test_display_value_stringifies_mixed_numpy_types() -> None:
+    """Mixed numpy scalar types become strings and serialize through PyArrow."""
+    display = _app_module()._display_value
+
+    assert display(np.True_) == 'True'
+    assert display(np.False_) == 'False'
+    assert display(np.int64(827)) == '827'
+    assert display(np.float64(231.76)) == '231.76'
+    assert display('DC-Newark') == 'DC-Newark'
+
+    values = [display(v) for v in [np.int64(827), np.False_, np.float64(231.76), 'DC-Newark']]
+    table = pa.Table.from_pandas(pd.DataFrame({'Previous Value': values}))
+    assert table.column('Previous Value').to_pylist() == ['827', 'False', '231.76', 'DC-Newark']
+
+
+def test_raw_mixed_type_column_fails_arrow_serialization() -> None:
+    """Baseline: the raw mixed-type column is what breaks PyArrow serialization."""
+    raw = pd.DataFrame({'Previous Value': [np.int64(827), np.False_, np.float64(231.76)]})
+    with pytest.raises(pa.ArrowInvalid):
+        pa.Table.from_pandas(raw)
+
+
+def test_display_value_renders_missing_as_blank() -> None:
+    """None, NaN, pd.NA and NaT render as empty strings."""
+    display = _app_module()._display_value
+    for missing in (None, float('nan'), np.nan, pd.NA, pd.NaT):
+        assert display(missing) == ''
+
+
+class _RecordHandler(logging.Handler):
+    """Collect log records from a specific logger (Streamlit sets propagate=False)."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+def _step5_app_with_mixed_types() -> AppTest:
+    """Step 5 app whose Records With Changes row mixes numpy bool/int/float/str."""
+    at = AppTest.from_file(APP_PATH)
+    at.session_state['current_step'] = 5
+    at.session_state['file_a_obj'] = object()
+    at.session_state['file_b_obj'] = object()
+    at.session_state['file_a_name'] = 'A.xlsx'
+    at.session_state['file_b_name'] = 'B.xlsx'
+    at.session_state['key_pair_entries'] = [
+        {'id': 'k-1', 'file_a': 'ID', 'file_b': 'ID', 'type': 'Text'},
+    ]
+    at.session_state['compare_pair_entries'] = [
+        {'id': 'c-1', 'file_a': 'qty', 'file_b': 'qty', 'type': 'Text'},
+        {'id': 'c-2', 'file_a': 'active', 'file_b': 'active', 'type': 'Text'},
+        {'id': 'c-3', 'file_a': 'price', 'file_b': 'price', 'type': 'Text'},
+    ]
+
+    cell_diffs = [
+        CellDiff(
+            column_a='qty',
+            column_b='qty',
+            row_key="ID='2'",
+            sheet='',
+            value_a=np.int64(827),
+            value_b=np.int64(900),
+            are_equal=False,
+            excel_row_a=3,
+            excel_row_b=3,
+        ),
+        CellDiff(
+            column_a='active',
+            column_b='active',
+            row_key="ID='2'",
+            sheet='',
+            value_a=np.False_,
+            value_b=np.True_,
+            are_equal=False,
+            excel_row_a=3,
+            excel_row_b=3,
+        ),
+        CellDiff(
+            column_a='price',
+            column_b='price',
+            row_key="ID='2'",
+            sheet='',
+            value_a=np.float64(231.76),
+            value_b=np.float64(240.5),
+            are_equal=False,
+            excel_row_a=3,
+            excel_row_b=3,
+        ),
+        CellDiff(
+            column_a='note',
+            column_b='note',
+            row_key="ID='2'",
+            sheet='',
+            value_a=float('nan'),
+            value_b=pd.NaT,
+            are_equal=False,
+            excel_row_a=3,
+            excel_row_b=3,
+        ),
+    ]
+
+    result = ComparisonResult(
+        matched=[
+            RowDiff(
+                row_key="ID='1'",
+                status=DiffStatus.MATCHED,
+                cell_diffs=[],
+                index_a=0,
+                index_b=0,
+                excel_row_a=2,
+                excel_row_b=2,
+                key_values_a=('1',),
+                key_values_b=('1',),
+            )
+        ],
+        mismatched=[
+            RowDiff(
+                row_key="ID='2'",
+                status=DiffStatus.MISMATCHED,
+                cell_diffs=cell_diffs,
+                index_a=1,
+                index_b=1,
+                excel_row_a=3,
+                excel_row_b=3,
+                key_values_a=('2',),
+                key_values_b=('2',),
+            )
+        ],
+        only_in_a=[],
+        only_in_b=[],
+        data_quality_issues=[],
+        schema_diff=SchemaDiff(
+            common_columns=['ID', 'qty', 'active', 'price', 'note'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['ID'],
+            compare_columns=['qty', 'active', 'price', 'note'],
+        ),
+        summary={
+            'total_rows_file_a': 2,
+            'total_rows_file_b': 2,
+            'matched_records': 1,
+            'mismatched_records': 1,
+            'matched_no_fields_compared': 0,
+            'only_in_file_a': 0,
+            'only_in_file_b': 0,
+            'duplicate_key_records': 0,
+            'missing_key_records': 0,
+        },
+    )
+    at.session_state['comparison_result'] = result
+    at.run()
+    return at
+
+
+def test_changed_preview_mixed_types_render_as_strings_without_arrow_fallback() -> None:
+    """Records With Changes renders mixed types as strings without Arrow fallback."""
+    arrow_logger = logging.getLogger('streamlit.dataframe_util')
+    handler = _RecordHandler()
+    arrow_logger.addHandler(handler)
+    try:
+        at = _step5_app_with_mixed_types()
+    finally:
+        arrow_logger.removeHandler(handler)
+
+    assert not at.exception
+
+    # No automatic Arrow fallback was triggered while rendering the preview.
+    fallback = [
+        r
+        for r in handler.records
+        if 'Serialization of dataframe to Arrow table was unsuccessful' in r.getMessage()
+    ]
+    assert fallback == []
+
+    # at.dataframe[0] = Unchanged Records, at.dataframe[1] = Records With Changes.
+    changed = at.dataframe[1].value
+    assert changed['Previous Value'].tolist() == ['827', 'False', '231.76', '']
+    assert changed['Updated Value'].tolist() == ['900', 'True', '240.5', '']
+
+    # Other preview columns retain their existing behavior.
+    assert changed['Column Name (File A)'].tolist() == ['qty', 'active', 'price', 'note']
+    assert changed['Column Name (File B)'].tolist() == ['qty', 'active', 'price', 'note']
+    assert changed['File A – ID'].tolist() == ['2', '2', '2', '2']
+    assert changed['File B – ID'].tolist() == ['2', '2', '2', '2']
+    assert changed['Excel Row (File A)'].tolist() == [3, 3, 3, 3]
+    assert changed['Excel Row (File B)'].tolist() == [3, 3, 3, 3]
+
+
+def test_app_source_has_no_use_container_width() -> None:
+    """The deprecated use_container_width argument must not appear in the app."""
+    source = APP_PATH.read_text(encoding='utf-8')
+    assert 'use_container_width' not in source
 
 
 # ---------------------------------------------------------------------------

@@ -180,7 +180,7 @@ Key functions:
 | `tests/unit/test_security.py` | File existence, directory rejection, unsupported extension, empty file, unreadable workbook, workbook close, file-handle release. |
 | `tests/unit/test_streamlit_app.py` | App loading, widget rendering, session state, key/compare pair add/remove, navigation persistence, dashboard signals, end-to-end comparison, temporary data cleanup (Finish & Clear / Start Over), uploader nonce rotation, upload caption + `.streamlit/config.toml` maxUploadSize. |
 
-Total: 333 tests (as of the current release), all passing.
+Total: 338 tests (as of the current release), all passing.
 
 ## Configuration File
 
