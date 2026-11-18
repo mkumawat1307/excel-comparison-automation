@@ -45,18 +45,37 @@ Excel Comparison Automation automates this workflow with configurable key mappin
 | Testing | pytest >= 8.0.0 |
 | Linting/formatting | ruff >= 0.5.0 |
 
-## Screenshots
+## Application Screenshots
 
-Screenshots are not yet available. Add them here when you have captured the application UI:
+### Upload Excel Files
 
-- `docs/screenshots/01-upload.png` — Step 1: File upload
-- `docs/screenshots/02-worksheets.png` — Step 2: Worksheet selection
-- `docs/screenshots/03-keys.png` — Step 3: Matching keys configuration
-- `docs/screenshots/04-comparisons.png` — Step 4: Comparison columns configuration
-- `docs/screenshots/05-results.png` — Step 5: Results dashboard and preview tabs
-- `docs/screenshots/06-download.png` — Step 6: Report download
-- `docs/screenshots/report-overview.png` — Comparison Overview sheet
-- `docs/screenshots/report-unchanged.png` — Unchanged Records sheet (Option B layout)
+![Upload Excel Files](docs/screenshots/01-upload.png)
+
+### Select Worksheets
+
+![Select Worksheets](docs/screenshots/02-worksheets.png)
+
+### Configure Matching Keys
+
+![Configure Matching Keys](docs/screenshots/03-keys.png)
+
+### Select Comparison Columns
+
+![Select Comparison Columns](docs/screenshots/04-comparisons.png)
+
+### Comparison Results
+
+![Comparison Results](docs/screenshots/05-results.png)
+
+### Download Excel Report
+
+![Download Excel Report](docs/screenshots/06-download.png)
+
+### Generated Excel Report
+
+![Comparison Overview](docs/screenshots/report-overview.png)
+
+![Unchanged Records](docs/screenshots/report-unchanged.png)
 
 ## Installation
 
