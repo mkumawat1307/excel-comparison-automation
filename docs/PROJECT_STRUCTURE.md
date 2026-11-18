@@ -136,7 +136,7 @@ Key functions:
 - `_style_header_row(worksheet, row_num, column_count)` — applies blue header styling.
 - `_autofit_columns(worksheet, max_width=60)` — best-fit column widths.
 - `_write_summary_sheet(workbook, result)` — Comparison Overview sheet.
-- `_write_matching_records_sheet(workbook, result, config, df_a=None, df_b=None)` — Unchanged Records sheet (Option B layout: interleaved keys + File B comparison columns + unmapped columns).
+- `_write_matching_records_sheet(workbook, result, config, df_a=None, df_b=None)` — Unchanged Records sheet (configured columns only: interleaved keys + File B comparison columns + status + Excel row refs; unmapped columns excluded).
 - `_write_mismatched_records_sheet(workbook, result, config)` — Records With Changes sheet.
 - `_write_only_in_sheet(workbook, sheet_name, rows, side, config, df=None)` — Missing From File B / New Records in File B sheets (complete original record, original column names, no prefix).
 - `_write_data_quality_sheet(workbook, result, config)` — Records Needing Attention sheet.
@@ -175,12 +175,12 @@ Key functions:
 | `tests/unit/test_matcher.py` | Single/composite key matching, collision-safe tuples, missing keys, duplicates (non-blocking), invalid keys, mapping validation, auto-pairs, row accounting, schema diff. |
 | `tests/unit/test_comparer.py` | Text/numeric/date comparison, tolerance, missing vs present, empty strings, case sensitivity, whitespace, renamed pairs, original value preservation. |
 | `tests/unit/test_reporter.py` | Report assembly, status classification, summary metrics, schema diff preservation, plain-language labels, per-file key values. |
-| `tests/unit/test_writer.py` | Six sheet names, heading conventions, Option B layout, complete original records, formula injection, key value preservation, backward compatibility, workbook cleanup. |
+| `tests/unit/test_writer.py` | Six sheet names, heading conventions, Unchanged Records configured-columns-only layout (keys + File B comparisons, exact order), complete original records, formula injection, key value preservation, backward compatibility, workbook cleanup. |
 | `tests/unit/test_models.py` | DiffStatus values and labels, model defaults, immutability. |
 | `tests/unit/test_security.py` | File existence, directory rejection, unsupported extension, empty file, unreadable workbook, workbook close, file-handle release. |
 | `tests/unit/test_streamlit_app.py` | App loading, widget rendering, session state, key/compare pair add/remove, navigation persistence, dashboard signals, end-to-end comparison, temporary data cleanup (Finish & Clear / Start Over), uploader nonce rotation, upload caption + `.streamlit/config.toml` maxUploadSize. |
 
-Total: 331 tests (as of the current release), all passing.
+Total: 333 tests (as of the current release), all passing.
 
 ## Configuration File
 

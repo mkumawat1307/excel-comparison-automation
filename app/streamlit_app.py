@@ -1008,25 +1008,10 @@ def _render_results_preview(result) -> None:
     ]
     tabs = st.tabs(tab_labels)
 
-    # Build interleaved per-file key column headers from key_pairs mapping order:
-    # File A key 1, File B key 1, File A key 2, File B key 2, ...
-    key_cols_a = [e['file_a'] for e in key_pair_entries if e['file_a'] is not None]
-    key_cols_b = [e['file_b'] for e in key_pair_entries if e['file_b'] is not None]
+    # Comparison columns are displayed from File B only, in configured mapping
+    # order (unchanged records have identical values in both files).
     compare_pair_entries = st.session_state.get('compare_pair_entries', [])
-    compare_cols_a = [e['file_a'] for e in compare_pair_entries if e['file_a'] is not None]
     compare_cols_b = [e['file_b'] for e in compare_pair_entries if e['file_b'] is not None]
-
-    # Remaining unmapped columns (not keys, not comparisons), in workbook order.
-    remaining_a = (
-        [c for c in loaded_a.df.columns if c not in key_cols_a and c not in compare_cols_a]
-        if loaded_a
-        else []
-    )
-    remaining_b = (
-        [c for c in loaded_b.df.columns if c not in key_cols_b and c not in compare_cols_b]
-        if loaded_b
-        else []
-    )
 
     # Helper to retrieve a complete original source row by DataFrame index.
     def _source_row(loaded, index_val):
@@ -1037,8 +1022,8 @@ def _render_results_preview(result) -> None:
         except (KeyError, ValueError, TypeError):
             return None
 
-    # Unchanged Records — Option B layout:
-    # Interleaved keys + File B comparison columns + unmapped File A + unmapped File B.
+    # Unchanged Records — configured columns only:
+    # interleaved keys + File B comparison columns + status + Excel row refs.
     with tabs[0]:
         rows = []
         for row_diff in result.matched:
@@ -1054,13 +1039,6 @@ def _render_results_preview(result) -> None:
             # File B comparison values (File B column names only).
             source_b = _source_row(loaded_b, row_diff.index_b)
             for col in compare_cols_b:
-                row_dict[file_b_column_header(col)] = source_b[col] if source_b is not None else ''
-            # Remaining unmapped File A columns.
-            source_a = _source_row(loaded_a, row_diff.index_a)
-            for col in remaining_a:
-                row_dict[file_a_column_header(col)] = source_a[col] if source_a is not None else ''
-            # Remaining unmapped File B columns.
-            for col in remaining_b:
                 row_dict[file_b_column_header(col)] = source_b[col] if source_b is not None else ''
             row_dict['Record Status'] = row_diff.status.label
             row_dict['Excel Row (File A)'] = row_diff.excel_row_a or ''

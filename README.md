@@ -126,7 +126,7 @@ The report contains six sheets:
 | Sheet | Contents |
 |-------|----------|
 | Comparison Overview | Summary metrics in plain language (records matched, changed, missing, new, duplicates, missing keys, column stats). |
-| Unchanged Records | Records with matching keys and equal compared values; interleaved key pairs, File B comparison values, unmapped columns, Excel row references. |
+| Unchanged Records | Records with matching keys and equal compared values; interleaved key pairs, File B comparison values, Excel row references (only configured key/comparison columns are shown). |
 | Records With Changes | Every changed cell: previous vs. updated value, column names, key values, Excel row references. |
 | Missing From File B | Complete original File A records (original column names, no prefix) with Excel Row (File A). |
 | New Records in File B | Complete original File B records (original column names, no prefix) with Excel Row (File B). |
@@ -180,7 +180,7 @@ The resource limits above are then enforced on the real data actually encountere
 ## How to Run Tests
 
 ```powershell
-# Full test suite (331 tests)
+# Full test suite (333 tests)
 python -m pytest -q
 
 # Individual test file

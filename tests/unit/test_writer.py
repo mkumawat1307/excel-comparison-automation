@@ -2353,3 +2353,103 @@ def test_write_report_closes_workbook_on_failure(tmp_path: Path, monkeypatch: py
 
     assert instances, 'write_report should create a workbook'
     assert all(wb.closed for wb in instances)
+
+
+# ---------------------------------------------------------------------------
+# Unchanged Records — configured columns only (keys + File B comparisons)
+# ---------------------------------------------------------------------------
+# Generic inventory-style fixture. Column names are arbitrary test data, not
+# production constants, so the behavior is verified generically.
+_INVENTORY_KEYS = [('SR NO', 'SR')]
+_INVENTORY_COMPARE = [
+    'on_hand',
+    'reserved',
+    'available',
+    'reorder_point',
+    'below_reorder',
+    'unit_cost',
+    'days_of_cover',
+]
+_INVENTORY_UNMAPPED = ['snapshot_date', 'warehouse', 'sku']
+
+
+def _inventory_scenario() -> tuple[ComparisonResult, ComparisonConfig, pd.DataFrame, pd.DataFrame]:
+    """One matched record with keys, comparison columns, and unmapped columns."""
+    row_a: dict = {'SR NO': '1000'}
+    row_b: dict = {'SR': '1000'}
+    for i, col in enumerate(_INVENTORY_COMPARE):
+        row_a[col] = str(100 + i)
+        row_b[col] = str(100 + i)
+    for col in _INVENTORY_UNMAPPED:
+        row_a[col] = f'a_{col}'
+        row_b[col] = f'b_{col}'
+    df_a = pd.DataFrame([row_a])
+    df_b = pd.DataFrame([row_b])
+
+    config = _config(
+        key_pairs=[ColumnPair(fa, fb) for fa, fb in _INVENTORY_KEYS],
+        compare_pairs=[ColumnPair(c, c) for c in _INVENTORY_COMPARE],
+    )
+    result = ComparisonResult(
+        matched=[
+            RowDiff(
+                row_key="SR NO='1000'",
+                status=DiffStatus.MATCHED,
+                cell_diffs=[],
+                index_a=0,
+                index_b=0,
+                excel_row_a=2,
+                excel_row_b=2,
+                key_values_a=('1000',),
+                key_values_b=('1000',),
+            )
+        ],
+        mismatched=[],
+        only_in_a=[],
+        only_in_b=[],
+        data_quality_issues=[],
+        schema_diff=SchemaDiff(
+            common_columns=['SR NO', 'SR', *_INVENTORY_COMPARE],
+            only_in_a=list(_INVENTORY_UNMAPPED),
+            only_in_b=list(_INVENTORY_UNMAPPED),
+            key_columns=['SR NO', 'SR'],
+            compare_columns=list(_INVENTORY_COMPARE),
+        ),
+        summary={'matched_records': 1, 'total_rows_file_a': 1, 'total_rows_file_b': 1},
+    )
+    return result, config, df_a, df_b
+
+
+def test_writer_unchanged_records_only_configured_columns(tmp_path: Path):
+    """Unchanged Records shows exactly keys + File B comparisons, in order."""
+    result, config, df_a, df_b = _inventory_scenario()
+    output_path = tmp_path / 'report.xlsx'
+    write_report(result, str(output_path), config, df_a=df_a, df_b=df_b)
+
+    workbook = openpyxl.load_workbook(output_path)
+    ws = workbook['Unchanged Records']
+    headers = [cell.value for cell in ws[1]]
+
+    expected_headers = (
+        ['File A – SR NO', 'File B – SR']
+        + [f'File B – {c}' for c in _INVENTORY_COMPARE]
+        + ['Record Status', 'Excel Row (File A)', 'Excel Row (File B)']
+    )
+    assert headers == expected_headers
+
+    # Unmapped File A / File B columns are not displayed.
+    for col in _INVENTORY_UNMAPPED:
+        assert f'File A – {col}' not in headers
+        assert f'File B – {col}' not in headers
+
+    data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+    assert len(data_rows) == 1
+    row = data_rows[0]
+    assert row[0] == '1000'  # File A – SR NO
+    assert row[1] == '1000'  # File B – SR
+    assert list(row[2 : 2 + len(_INVENTORY_COMPARE)]) == [
+        str(100 + i) for i in range(len(_INVENTORY_COMPARE))
+    ]
+    assert row[-3] == 'No changes'
+    assert row[-2] == 2
+    assert row[-1] == 2

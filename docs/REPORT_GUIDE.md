@@ -43,16 +43,15 @@ This sheet lists records whose keys match in both files and whose compared value
 | Section | Columns |
 |---------|---------|
 | 1. Interleaved key column pairs | `File A – {key1}`, `File B – {key1}`, `File A – {key2}`, `File B – {key2}`, … (one pair per configured key) |
-| 2. File B comparison columns | `File B – {compare_col}` for each selected comparison column (File B name only; File A comparison columns are omitted since values are identical) |
-| 3. Unmapped File A columns | `File A – {col}` for each File A column that is neither a key nor a comparison column, in original workbook order |
-| 4. Unmapped File B columns | `File B – {col}` for each File B column that is neither a key nor a comparison column, in original workbook order |
-| 5. Status and row references | `Record Status`, `Excel Row (File A)`, `Excel Row (File B)` |
+| 2. File B comparison columns | `File B – {compare_col}` for each selected comparison column, in configured order (File B name only; File A comparison columns are omitted since values are identical) |
+| 3. Status and row references | `Record Status`, `Excel Row (File A)`, `Excel Row (File B)` |
+
+Only the configured key columns and selected comparison columns are shown. Unmapped columns (present in a source file but not selected as a key or comparison column) are **not** displayed on this sheet.
 
 ### What each column means
 
 - **File A – {key} / File B – {key}**: The key value from each file for this record. Values are interleaved by key-pair order so you can confirm both sides match.
 - **File B – {compare_col}**: The comparison value from File B. Because this is the Unchanged Records sheet, this equals the File A value (not shown separately to avoid duplication).
-- **File A – {col} / File B – {col} (unmapped)**: Columns from each file that were not selected as keys or comparison columns. Shown with their file prefix and original column name preserved exactly (spaces, underscores, acronyms unchanged).
 - **Record Status**: Plain-language status label (for unchanged records: "No changes").
 - **Excel Row (File A) / Excel Row (File B)**: Physical row number in the source worksheet (the actual worksheet row, including any leading blank rows before the header).
 
@@ -146,7 +145,7 @@ This sheet lists data-quality problems found during matching: duplicate keys and
 | Six fixed sheet names | `config.py` | `REPORT_SHEETS` |
 | Plain-language summary labels | `reporter.py` | `SUMMARY_LABELS`, `summary_label()` |
 | Per-file column headings (en dash) | `reporter.py` | `file_a_column_header()`, `file_b_column_header()`, `FILE_COLUMN_SEPARATOR` |
-| Unchanged Records sheet (Option B) | `writer.py` | `_write_matching_records_sheet()` |
+| Unchanged Records sheet (keys + File B comparisons only) | `writer.py` | `_write_matching_records_sheet()` |
 | Records With Changes sheet | `writer.py` | `_write_mismatched_records_sheet()` |
 | Missing / New sheets (complete records) | `writer.py` | `_write_only_in_sheet()` |
 | Records Needing Attention sheet | `writer.py` | `_write_data_quality_sheet()` |

@@ -104,21 +104,19 @@ def _write_matching_records_sheet(
     df_a: Optional[pd.DataFrame] = None,
     df_b: Optional[pd.DataFrame] = None,
 ) -> None:
-    """Write the Unchanged Records sheet (Option B layout).
+    """Write the Unchanged Records sheet.
 
-    Column order:
+    Only configured columns are shown, in configured order:
     1. Interleaved key column pairs: File A key 1, File B key 1, ...
-    2. Selected comparison columns from File B only.
-    3. Remaining unmapped File A columns (original workbook order).
-    4. Remaining unmapped File B columns (original workbook order).
-    5. Record Status, Excel Row (File A), Excel Row (File B).
+    2. Selected comparison columns from File B only (values are identical to
+       File A for unchanged records, so File A comparison columns are omitted).
+    3. Record Status, Excel Row (File A), Excel Row (File B).
+
+    Unmapped columns (neither a key nor a selected comparison column) are not
+    displayed.
     """
     ws = workbook.create_sheet(REPORT_SHEETS[1])
 
-    # Classify columns for each file.
-    key_cols_a = [pair.file_a_column for pair in config.key_pairs]
-    key_cols_b = [pair.file_b_column for pair in config.key_pairs]
-    compare_cols_a = [pair.file_a_column for pair in config.compare_pairs]
     compare_cols_b = [pair.file_b_column for pair in config.compare_pairs]
 
     # Interleaved key column headers.
@@ -130,25 +128,9 @@ def _write_matching_records_sheet(
     # File B comparison column headers (File B names only).
     compare_headers_b = [file_b_column_header(c) for c in compare_cols_b]
 
-    # Remaining unmapped columns (not keys, not comparisons), in workbook order.
-    remaining_a = (
-        [c for c in df_a.columns if c not in key_cols_a and c not in compare_cols_a]
-        if df_a is not None
-        else []
-    )
-    remaining_b = (
-        [c for c in df_b.columns if c not in key_cols_b and c not in compare_cols_b]
-        if df_b is not None
-        else []
-    )
-    remaining_headers_a = [file_a_column_header(c) for c in remaining_a]
-    remaining_headers_b = [file_b_column_header(c) for c in remaining_b]
-
     columns = (
         key_headers
         + compare_headers_b
-        + remaining_headers_a
-        + remaining_headers_b
         + ['Record Status', 'Excel Row (File A)', 'Excel Row (File B)']
     )
     ws.append(columns)
@@ -168,23 +150,6 @@ def _write_matching_records_sheet(
         if df_b is not None and row.index_b is not None and int(row.index_b) in df_b.index:
             source_row_b = df_b.loc[int(row.index_b)]
         for col in compare_cols_b:
-            if source_row_b is not None:
-                values.append(source_row_b[col])
-            else:
-                values.append('')
-
-        # Remaining unmapped File A columns.
-        source_row_a = None
-        if df_a is not None and row.index_a is not None and int(row.index_a) in df_a.index:
-            source_row_a = df_a.loc[int(row.index_a)]
-        for col in remaining_a:
-            if source_row_a is not None:
-                values.append(source_row_a[col])
-            else:
-                values.append('')
-
-        # Remaining unmapped File B columns.
-        for col in remaining_b:
             if source_row_b is not None:
                 values.append(source_row_b[col])
             else:

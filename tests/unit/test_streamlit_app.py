@@ -2603,6 +2603,135 @@ def test_streamlit_preview_multiple_blank_entries_interspersed():
 
 
 # ---------------------------------------------------------------------------
+# Unchanged Records preview — configured columns only (keys + File B compares)
+# ---------------------------------------------------------------------------
+# Generic inventory-style fixture. Column names are arbitrary test data, not
+# production constants, so the behavior is verified generically.
+_PREVIEW_INVENTORY_KEYS = [('SR NO', 'SR')]
+_PREVIEW_INVENTORY_COMPARE = [
+    'on_hand',
+    'reserved',
+    'available',
+    'reorder_point',
+    'below_reorder',
+    'unit_cost',
+    'days_of_cover',
+]
+_PREVIEW_INVENTORY_UNMAPPED = ['snapshot_date', 'warehouse', 'sku']
+
+
+def _step5_inventory_app() -> AppTest:
+    """Build an AppTest at Step 5 with one matched inventory-style record."""
+    at = AppTest.from_file(APP_PATH)
+    at.session_state['current_step'] = 5
+    at.session_state['file_a_obj'] = object()
+    at.session_state['file_b_obj'] = object()
+    at.session_state['file_a_name'] = 'A.xlsx'
+    at.session_state['file_b_name'] = 'B.xlsx'
+    at.session_state['key_pair_entries'] = [
+        {
+            'id': 'k-1',
+            'file_a': _PREVIEW_INVENTORY_KEYS[0][0],
+            'file_b': _PREVIEW_INVENTORY_KEYS[0][1],
+        }
+    ]
+    at.session_state['compare_pair_entries'] = [
+        {'id': f'c-{i}', 'file_a': col, 'file_b': col, 'type': 'Text'}
+        for i, col in enumerate(_PREVIEW_INVENTORY_COMPARE)
+    ]
+
+    row_a: dict = {'SR NO': '1000'}
+    row_b: dict = {'SR': '1000'}
+    for i, col in enumerate(_PREVIEW_INVENTORY_COMPARE):
+        row_a[col] = str(100 + i)
+        row_b[col] = str(100 + i)
+    for col in _PREVIEW_INVENTORY_UNMAPPED:
+        row_a[col] = f'a_{col}'
+        row_b[col] = f'b_{col}'
+    at.session_state['loaded_a'] = LoadedSheet(
+        df=pd.DataFrame([row_a]),
+        sheet_name='Sheet1',
+        file_source='A.xlsx',
+        excel_row_mapping={0: 2},
+    )
+    at.session_state['loaded_b'] = LoadedSheet(
+        df=pd.DataFrame([row_b]),
+        sheet_name='Sheet1',
+        file_source='B.xlsx',
+        excel_row_mapping={0: 2},
+    )
+
+    at.session_state['comparison_result'] = ComparisonResult(
+        matched=[
+            RowDiff(
+                row_key="SR NO='1000'",
+                status=DiffStatus.MATCHED,
+                cell_diffs=[],
+                index_a=0,
+                index_b=0,
+                excel_row_a=2,
+                excel_row_b=2,
+                key_values_a=('1000',),
+                key_values_b=('1000',),
+            )
+        ],
+        mismatched=[],
+        only_in_a=[],
+        only_in_b=[],
+        data_quality_issues=[],
+        schema_diff=SchemaDiff(
+            common_columns=['SR NO', 'SR', *_PREVIEW_INVENTORY_COMPARE],
+            only_in_a=list(_PREVIEW_INVENTORY_UNMAPPED),
+            only_in_b=list(_PREVIEW_INVENTORY_UNMAPPED),
+            key_columns=['SR NO', 'SR'],
+            compare_columns=list(_PREVIEW_INVENTORY_COMPARE),
+        ),
+        summary={
+            'total_rows_file_a': 1,
+            'total_rows_file_b': 1,
+            'matched_records': 1,
+            'mismatched_records': 0,
+            'matched_no_fields_compared': 0,
+            'only_in_file_a': 0,
+            'only_in_file_b': 0,
+            'duplicate_key_records': 0,
+            'missing_key_records': 0,
+        },
+    )
+    at.run()
+    return at
+
+
+def test_streamlit_unchanged_preview_only_configured_columns() -> None:
+    """Unchanged preview shows exactly keys + File B comparisons, in order."""
+    at = _step5_inventory_app()
+    assert not at.exception
+
+    preview = at.dataframe[0].value
+    expected_columns = (
+        ['File A – SR NO', 'File B – SR']
+        + [f'File B – {col}' for col in _PREVIEW_INVENTORY_COMPARE]
+        + ['Record Status', 'Excel Row (File A)', 'Excel Row (File B)']
+    )
+    assert list(preview.columns) == expected_columns
+
+    # Unmapped File A / File B columns are not displayed.
+    for col in _PREVIEW_INVENTORY_UNMAPPED:
+        assert f'File A – {col}' not in preview.columns
+        assert f'File B – {col}' not in preview.columns
+
+    assert len(preview) == 1
+    preview_row = preview.iloc[0]
+    assert preview_row['File A – SR NO'] == '1000'
+    assert preview_row['File B – SR'] == '1000'
+    for i, col in enumerate(_PREVIEW_INVENTORY_COMPARE):
+        assert preview_row[f'File B – {col}'] == str(100 + i)
+    assert preview_row['Record Status'] == 'No changes'
+    assert preview_row['Excel Row (File A)'] == 2
+    assert preview_row['Excel Row (File B)'] == 2
+
+
+# ---------------------------------------------------------------------------
 # Temporary data cleanup (Finish & Clear Data / Start Over / uploader nonce)
 # ---------------------------------------------------------------------------
 
