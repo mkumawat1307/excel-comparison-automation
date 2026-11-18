@@ -2427,3 +2427,134 @@ def test_streamlit_unchanged_records_complete_data() -> None:
     assert result.matched[0].index_b == 0
     assert result.matched[0].key_values_a == ('101', '2026-01-01')
     assert result.matched[0].key_values_b == ('101', '2026-01-01')
+
+
+# ---------------------------------------------------------------------------
+# Preview key-value ordering regression tests (Issue 5)
+# Blank key-pair entries must not shift key values under wrong column headers.
+# ---------------------------------------------------------------------------
+
+
+def _step5_app_with_blank_keys(
+    key_pair_entries: list[dict],
+    key_values_a: tuple,
+    key_values_b: tuple,
+) -> AppTest:
+    """Build an AppTest at Step 5 with custom key-pair entries and key values."""
+    at = AppTest.from_file(APP_PATH)
+    at.session_state['current_step'] = 5
+    at.session_state['file_a_obj'] = object()
+    at.session_state['file_b_obj'] = object()
+    at.session_state['file_a_name'] = 'A.xlsx'
+    at.session_state['file_b_name'] = 'B.xlsx'
+    at.session_state['key_pair_entries'] = key_pair_entries
+    at.session_state['compare_pair_entries'] = []
+
+    matched = RowDiff(
+        row_key="ID='101'",
+        status=DiffStatus.MATCHED,
+        cell_diffs=[],
+        index_a=0,
+        index_b=0,
+        excel_row_a=2,
+        excel_row_b=2,
+        key_values_a=key_values_a,
+        key_values_b=key_values_b,
+    )
+
+    result = ComparisonResult(
+        matched=[matched],
+        mismatched=[],
+        only_in_a=[],
+        only_in_b=[],
+        data_quality_issues=[],
+        schema_diff=SchemaDiff(
+            common_columns=['ID', 'Code'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['ID', 'Code'],
+            compare_columns=[],
+        ),
+        summary={
+            'total_rows_file_a': 1,
+            'total_rows_file_b': 1,
+            'matched_records': 1,
+            'mismatched_records': 0,
+            'matched_no_fields_compared': 0,
+            'only_in_file_a': 0,
+            'only_in_file_b': 0,
+            'duplicate_key_records': 0,
+            'missing_key_records': 0,
+        },
+    )
+    at.session_state['comparison_result'] = result
+    at.run()
+    return at
+
+
+def test_streamlit_preview_blank_entry_between_valid_keys():
+    """Blank key-pair entry between valid entries must not shift key values."""
+    at = _step5_app_with_blank_keys(
+        key_pair_entries=[
+            {'id': 'k1', 'file_a': 'ID', 'file_b': 'ID'},
+            {'id': 'k2', 'file_a': None, 'file_b': None},  # blank between valid
+            {'id': 'k3', 'file_a': 'Code', 'file_b': 'Code'},
+        ],
+        key_values_a=('101', 'ABC'),
+        key_values_b=('101', 'ABC'),
+    )
+    assert not at.exception
+
+    # Unchanged Records dataframe (tab 0)
+    unchanged_df = at.dataframe[0].value
+    cols = {str(c): c for c in unchanged_df.columns}
+
+    # File A – ID should be 101 (first valid entry), File B – ID should be 101
+    assert unchanged_df.loc[0, cols['File A – ID']] == '101'
+    assert unchanged_df.loc[0, cols['File B – ID']] == '101'
+    # File A – Code should be ABC (second valid entry, not blank entry)
+    assert unchanged_df.loc[0, cols['File A – Code']] == 'ABC'
+    assert unchanged_df.loc[0, cols['File B – Code']] == 'ABC'
+
+
+def test_streamlit_preview_blank_entry_before_valid_key():
+    """Blank key-pair entry before a valid entry must not shift key values."""
+    at = _step5_app_with_blank_keys(
+        key_pair_entries=[
+            {'id': 'k1', 'file_a': None, 'file_b': None},  # blank before valid
+            {'id': 'k2', 'file_a': 'ID', 'file_b': 'ID'},
+        ],
+        key_values_a=('101',),
+        key_values_b=('101',),
+    )
+    assert not at.exception
+
+    unchanged_df = at.dataframe[0].value
+    cols = {str(c): c for c in unchanged_df.columns}
+
+    assert unchanged_df.loc[0, cols['File A – ID']] == '101'
+    assert unchanged_df.loc[0, cols['File B – ID']] == '101'
+
+
+def test_streamlit_preview_multiple_blank_entries_interspersed():
+    """Multiple blank entries interspersed with valid mappings must not shift values."""
+    at = _step5_app_with_blank_keys(
+        key_pair_entries=[
+            {'id': 'k1', 'file_a': None, 'file_b': None},  # blank
+            {'id': 'k2', 'file_a': 'ID', 'file_b': 'ID'},  # valid -> index 0
+            {'id': 'k3', 'file_a': None, 'file_b': None},  # blank
+            {'id': 'k4', 'file_a': 'Code', 'file_b': 'Code'},  # valid -> index 1
+            {'id': 'k5', 'file_a': None, 'file_b': None},  # blank
+        ],
+        key_values_a=('101', 'XYZ'),
+        key_values_b=('101', 'XYZ'),
+    )
+    assert not at.exception
+
+    unchanged_df = at.dataframe[0].value
+    cols = {str(c): c for c in unchanged_df.columns}
+
+    assert unchanged_df.loc[0, cols['File A – ID']] == '101'
+    assert unchanged_df.loc[0, cols['File B – ID']] == '101'
+    assert unchanged_df.loc[0, cols['File A – Code']] == 'XYZ'
+    assert unchanged_df.loc[0, cols['File B – Code']] == 'XYZ'

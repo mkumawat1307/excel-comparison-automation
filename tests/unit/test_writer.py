@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from pathlib import Path
 
 import openpyxl
@@ -2086,3 +2087,210 @@ def test_writer_missing_and_new_no_duplicate_key_columns(tmp_path: Path):
     assert headers.count('name') == 1
     assert headers.count('id_dup') == 1
     assert 'Excel Row (File A)' in headers
+
+
+# ---------------------------------------------------------------------------
+# Native data type preservation in report sheets (Issue 1)
+# ---------------------------------------------------------------------------
+
+
+def test_writer_missing_from_file_b_preserves_native_types(tmp_path: Path):
+    """Missing From File B sheet preserves native int/float/date values."""
+    key_pairs = [ColumnPair('id', 'id')]
+    compare_pairs = [ColumnPair('name', 'name')]
+    config = _config(key_pairs=key_pairs, compare_pairs=compare_pairs)
+    row_a = _row({'id': 42, 'name': 'Orphan', 'amount': 99.5, 'd': date(2024, 1, 15)})
+    df_a = pd.DataFrame([dict(row_a)])
+
+    match_result = MatchResult(
+        matched_pairs=[],
+        only_in_a_unique=[row_a],
+        only_in_b_unique=[],
+        duplicate_groups_a=[],
+        duplicate_groups_b=[],
+        duplicate_source_records_a=[],
+        duplicate_source_records_b=[],
+        missing_key_records_a=[],
+        missing_key_records_b=[],
+        schema_diff=SchemaDiff(
+            common_columns=['id', 'name', 'amount', 'd'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['id'],
+            compare_columns=['name'],
+        ),
+    )
+    result = ComparisonResult(
+        matched=[],
+        mismatched=[],
+        only_in_a=[
+            RowDiff(
+                row_key="id='42'",
+                status=DiffStatus.ONLY_IN_A,
+                cell_diffs=[],
+                index_a=0,
+                excel_row_a=5,
+                key_values_a=('42',),
+                key_values_b=(),
+            )
+        ],
+        only_in_b=[],
+        data_quality_issues=[],
+        schema_diff=match_result.schema_diff,
+        summary={'only_in_file_a': 1, 'total_rows_file_a': 1, 'total_rows_file_b': 0},
+    )
+
+    output_path = tmp_path / 'report.xlsx'
+    write_report(result, str(output_path), config, df_a=df_a, df_b=None)
+
+    workbook = openpyxl.load_workbook(output_path)
+    ws = workbook['Missing From File B']
+    headers = [cell.value for cell in ws[1]]
+    col_idx = {h: i for i, h in enumerate(headers)}
+
+    data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+    assert len(data_rows) == 1
+    row = data_rows[0]
+    # Native types preserved in the report
+    assert row[col_idx['id']] == 42
+    assert isinstance(row[col_idx['id']], int)
+    assert row[col_idx['name']] == 'Orphan'
+    assert row[col_idx['amount']] == 99.5
+    assert isinstance(row[col_idx['amount']], float)
+    # Date is written as datetime; compare the date part.
+    assert row[col_idx['d']] == datetime(2024, 1, 15, 0, 0)
+
+
+def test_writer_new_in_file_b_preserves_native_types(tmp_path: Path):
+    """New Records in File B sheet preserves native int/float/date values."""
+    key_pairs = [ColumnPair('id', 'id')]
+    compare_pairs = [ColumnPair('name', 'name')]
+    config = _config(key_pairs=key_pairs, compare_pairs=compare_pairs)
+    row_b = _row({'id': 42, 'name': 'Newbie', 'amount': 99.5, 'd': date(2024, 1, 15)})
+    df_b = pd.DataFrame([dict(row_b)])
+
+    match_result = MatchResult(
+        matched_pairs=[],
+        only_in_a_unique=[],
+        only_in_b_unique=[row_b],
+        duplicate_groups_a=[],
+        duplicate_groups_b=[],
+        duplicate_source_records_a=[],
+        duplicate_source_records_b=[],
+        missing_key_records_a=[],
+        missing_key_records_b=[],
+        schema_diff=SchemaDiff(
+            common_columns=['id', 'name', 'amount', 'd'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['id'],
+            compare_columns=['name'],
+        ),
+    )
+    result = ComparisonResult(
+        matched=[],
+        mismatched=[],
+        only_in_a=[],
+        only_in_b=[
+            RowDiff(
+                row_key="id='42'",
+                status=DiffStatus.ONLY_IN_B,
+                cell_diffs=[],
+                index_b=0,
+                excel_row_b=5,
+                key_values_a=(),
+                key_values_b=('42',),
+            )
+        ],
+        data_quality_issues=[],
+        schema_diff=match_result.schema_diff,
+        summary={'only_in_file_b': 1, 'total_rows_file_a': 0, 'total_rows_file_b': 1},
+    )
+
+    output_path = tmp_path / 'report.xlsx'
+    write_report(result, str(output_path), config, df_a=None, df_b=df_b)
+
+    workbook = openpyxl.load_workbook(output_path)
+    ws = workbook['New Records in File B']
+    headers = [cell.value for cell in ws[1]]
+    col_idx = {h: i for i, h in enumerate(headers)}
+
+    data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+    assert len(data_rows) == 1
+    row = data_rows[0]
+    # Native types preserved in the report
+    assert row[col_idx['id']] == 42
+    assert isinstance(row[col_idx['id']], int)
+    assert row[col_idx['name']] == 'Newbie'
+    assert row[col_idx['amount']] == 99.5
+    assert isinstance(row[col_idx['amount']], float)
+    # Date is written as datetime; compare the date part.
+    assert row[col_idx['d']] == datetime(2024, 1, 15, 0, 0)
+
+
+def test_writer_formula_injection_with_numeric_values(tmp_path: Path):
+    """Numeric cells are written as numbers (not text), strings starting with = remain text."""
+    key_pairs = [ColumnPair('id', 'id')]
+    compare_pairs = [ColumnPair('name', 'name')]
+    config = _config(key_pairs=key_pairs, compare_pairs=compare_pairs)
+    row_a = _row({'id': 42, 'name': '=1+1', 'amount': 100.5})
+    df_a = pd.DataFrame([dict(row_a)])
+
+    match_result = MatchResult(
+        matched_pairs=[],
+        only_in_a_unique=[row_a],
+        only_in_b_unique=[],
+        duplicate_groups_a=[],
+        duplicate_groups_b=[],
+        duplicate_source_records_a=[],
+        duplicate_source_records_b=[],
+        missing_key_records_a=[],
+        missing_key_records_b=[],
+        schema_diff=SchemaDiff(
+            common_columns=['id', 'name', 'amount'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['id'],
+            compare_columns=['name'],
+        ),
+    )
+    result = ComparisonResult(
+        matched=[],
+        mismatched=[],
+        only_in_a=[
+            RowDiff(
+                row_key="id='42'",
+                status=DiffStatus.ONLY_IN_A,
+                cell_diffs=[],
+                index_a=0,
+                excel_row_a=5,
+                key_values_a=('42',),
+                key_values_b=(),
+            )
+        ],
+        only_in_b=[],
+        data_quality_issues=[],
+        schema_diff=match_result.schema_diff,
+        summary={'only_in_file_a': 1, 'total_rows_file_a': 1, 'total_rows_file_b': 0},
+    )
+
+    output_path = tmp_path / 'report.xlsx'
+    write_report(result, str(output_path), config, df_a=df_a, df_b=None)
+
+    workbook = openpyxl.load_workbook(output_path)
+    ws = workbook['Missing From File B']
+    headers = [cell.value for cell in ws[1]]
+    col_idx = {h: i for i, h in enumerate(headers)}
+
+    data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+    assert len(data_rows) == 1
+    row = data_rows[0]
+    # Numeric values are numbers, not text
+    assert row[col_idx['id']] == 42
+    assert isinstance(row[col_idx['id']], int)
+    assert row[col_idx['amount']] == 100.5
+    assert isinstance(row[col_idx['amount']], float)
+    # Formula-injection string remains literal text with data_type='s'
+    assert row[col_idx['name']] == '=1+1'
+    cell = ws.cell(row=2, column=col_idx['name'] + 1)
+    assert cell.data_type == 's'

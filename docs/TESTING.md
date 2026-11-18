@@ -30,7 +30,7 @@ All commands are run from the project root directory with the virtual environmen
 python -m pytest -q
 ```
 
-Expected result: all tests pass. As of the current release: **234 passed, 0 failed**.
+Expected result: all tests pass. As of the current release: **303 passed, 0 failed**.
 
 ### Run an individual test file
 

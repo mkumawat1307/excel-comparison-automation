@@ -951,6 +951,9 @@ def _render_step5_run() -> None:
 def _render_results_preview(result) -> None:
     """Display comparison results preview."""
     key_pair_entries = st.session_state.get('key_pair_entries', [])
+    valid_key_entries = [
+        e for e in key_pair_entries if e['file_a'] is not None and e['file_b'] is not None
+    ]
     loaded_a = st.session_state.get('loaded_a')
     loaded_b = st.session_state.get('loaded_b')
     st.subheader('Comparison Results')
@@ -1001,15 +1004,13 @@ def _render_results_preview(result) -> None:
         for row_diff in result.matched:
             row_dict = {}
             # Interleaved key column values: File A key 1, File B key 1, ...
-            for i, entry in enumerate(key_pair_entries):
-                if entry['file_a'] is not None:
-                    row_dict[file_a_column_header(entry['file_a'])] = (
-                        row_diff.key_values_a[i] if i < len(row_diff.key_values_a or ()) else ''
-                    )
-                if entry['file_b'] is not None:
-                    row_dict[file_b_column_header(entry['file_b'])] = (
-                        row_diff.key_values_b[i] if i < len(row_diff.key_values_b or ()) else ''
-                    )
+            for i, entry in enumerate(valid_key_entries):
+                row_dict[file_a_column_header(entry['file_a'])] = (
+                    row_diff.key_values_a[i] if i < len(row_diff.key_values_a or ()) else ''
+                )
+                row_dict[file_b_column_header(entry['file_b'])] = (
+                    row_diff.key_values_b[i] if i < len(row_diff.key_values_b or ()) else ''
+                )
             # File B comparison values (File B column names only).
             source_b = _source_row(loaded_b, row_diff.index_b)
             for col in compare_cols_b:
@@ -1038,19 +1039,13 @@ def _render_results_preview(result) -> None:
                 if not cell_diff.are_equal:
                     row_dict = {}
                     # Interleaved key column values.
-                    for i, entry in enumerate(key_pair_entries):
-                        if entry['file_a'] is not None:
-                            row_dict[file_a_column_header(entry['file_a'])] = (
-                                row_diff.key_values_a[i]
-                                if i < len(row_diff.key_values_a or ())
-                                else ''
-                            )
-                        if entry['file_b'] is not None:
-                            row_dict[file_b_column_header(entry['file_b'])] = (
-                                row_diff.key_values_b[i]
-                                if i < len(row_diff.key_values_b or ())
-                                else ''
-                            )
+                    for i, entry in enumerate(valid_key_entries):
+                        row_dict[file_a_column_header(entry['file_a'])] = (
+                            row_diff.key_values_a[i] if i < len(row_diff.key_values_a or ()) else ''
+                        )
+                        row_dict[file_b_column_header(entry['file_b'])] = (
+                            row_diff.key_values_b[i] if i < len(row_diff.key_values_b or ()) else ''
+                        )
                     row_dict['Column Name (File A)'] = cell_diff.column_a
                     row_dict['Previous Value'] = cell_diff.value_a
                     row_dict['Column Name (File B)'] = cell_diff.column_b
@@ -1101,15 +1096,13 @@ def _render_results_preview(result) -> None:
             row_dict['Problem Found'] = issue.issue_type
             row_dict['File'] = issue.source_file
             row_dict['Excel Row'] = issue.excel_row_number or ''
-            for i, entry in enumerate(key_pair_entries):
-                if entry['file_a'] is not None:
-                    row_dict[file_a_column_header(entry['file_a'])] = (
-                        issue.key_values_a[i] if i < len(issue.key_values_a or ()) else ''
-                    )
-                if entry['file_b'] is not None:
-                    row_dict[file_b_column_header(entry['file_b'])] = (
-                        issue.key_values_b[i] if i < len(issue.key_values_b or ()) else ''
-                    )
+            for i, entry in enumerate(valid_key_entries):
+                row_dict[file_a_column_header(entry['file_a'])] = (
+                    issue.key_values_a[i] if i < len(issue.key_values_a or ()) else ''
+                )
+                row_dict[file_b_column_header(entry['file_b'])] = (
+                    issue.key_values_b[i] if i < len(issue.key_values_b or ()) else ''
+                )
             row_dict['Related Column Values'] = ' | '.join(
                 f'{k}={v!r}' for k, v in sorted(issue.all_column_values.items())
             )

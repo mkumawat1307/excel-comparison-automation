@@ -15,6 +15,7 @@ Type resolution rules:
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
@@ -45,12 +46,11 @@ def _is_missing(value: Any) -> bool:
     """
     if value is None:
         return True
-    if isinstance(value, float) and pd.isna(value):
-        return True
-    if isinstance(value, type(pd.NA)) or value is pd.NA:
-        return True
-    if isinstance(value, pd.Timestamp) and pd.isna(value):
-        return True
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
     return False
 
 
@@ -78,8 +78,11 @@ def _normalize_text(
 def _try_parse_date(value: Any) -> Optional[pd.Timestamp]:
     """Parse a string as a date using documented rules (dayfirst=False).
 
+    Native datetime/date values are converted directly to pd.Timestamp.
     Returns None if parsing fails.
     """
+    if isinstance(value, (datetime, date)):
+        return pd.Timestamp(value)
     if not isinstance(value, str):
         return None
     stripped = value.strip()

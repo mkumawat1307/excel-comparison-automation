@@ -32,6 +32,7 @@ Excel Comparison Automation automates this workflow with configurable key mappin
 | Original value preservation | Leading zeros, whitespace, casing, and data types preserved exactly; source workbooks never modified. |
 | Excel row references | Every report row references the physical Excel row number from the source file. |
 | Duplicate and missing-key handling | Reported as data-quality issues, never silently dropped; unambiguous matching continues non-blocking. |
+| Large-file protection | Compressed file size (50 MB), declared decompressed ZIP size (200 MB), and per-worksheet resource limits (250,000 rows, 1,000 columns, 5,000,000 cells) are enforced with clear errors. |
 
 ## Technology Stack
 
@@ -108,10 +109,53 @@ The report contains six sheets:
 
 See [docs/REPORT_GUIDE.md](docs/REPORT_GUIDE.md) for detailed sheet-by-sheet explanations.
 
+## Input Limits and Validation
+
+### File validation
+
+Every uploaded file is validated before processing (see `src/excel_compare/security.py`):
+
+- **Format:** only `.xlsx` workbooks are accepted (case-insensitive extension check).
+- **Compressed size:** maximum 50 MB per file (`50 * 1024 * 1024` bytes).
+- **Declared decompressed size:** the sum of the ZIP central-directory uncompressed sizes must not exceed 200 MB (`200 * 1024 * 1024` bytes). This bounds ZIP-bomb style expansion before the workbook is opened.
+- **Malformed archives:** a file that is not a valid ZIP archive is rejected with a clear error before the readability check.
+- **Readability:** the workbook must open via OpenPyXL (`read_only=True, data_only=True`) before further processing.
+
+The decompressed size is read from the archive's central-directory metadata. This is a fast pre-open guard, not a verification of archive integrity or of the actual decompressed bytes.
+
+### Worksheet resource limits
+
+Loading a worksheet enforces the following limits (`src/excel_compare/config.py`). Exceeding any limit raises a clear error naming the limit that was exceeded:
+
+| Limit | Value | What is counted |
+|-------|-------|-----------------|
+| Yielded rows | 250,000 | Every row returned by iteration, including empty rows. |
+| Actual data rows | 250,000 | Rows containing at least one non-empty value. |
+| Columns | 1,000 | Width of each yielded row, including formatting-only cells. |
+| Cells | 5,000,000 | Total cells across rows that contain at least one non-empty value. |
+
+How blank and formatting-only content is treated:
+
+- An **empty row** (no non-empty cell values) does not count toward actual data rows or cells, but it does count toward the yielded-row limit.
+- An **empty cell** inside a data row is preserved as `None`; it contributes to that row's width and cell count.
+- A **formatting-only cell** (styled but with no value) contributes to the row width and cell count, but does not by itself make a row count as data.
+
+### Worksheet dimension protection
+
+Excel stores a `<dimension>` element declaring a worksheet's used range, but that metadata cannot always be trusted: it can be **inflated** (claiming a much larger range than exists), **underreported** (declaring fewer rows or columns than actually contain data), or **missing** entirely. Trusting it directly would either reject small valid worksheets or silently drop real data.
+
+Before iterating, the loader calls OpenPyXL's `worksheet.reset_dimensions()` (`src/excel_compare/loader.py`). This clears the cached dimension so `iter_rows()` walks the actual worksheet XML and sizes each row to its real last cell. As a result:
+
+- **Inflated dimensions** no longer cause a small worksheet to be rejected.
+- **Underreported dimensions** no longer hide data that exists beyond the declared range.
+- **Missing dimensions** load normally.
+
+The resource limits above are then enforced on the real data actually encountered, and any worksheet that exceeds a limit is rejected with a clear error rather than being silently truncated.
+
 ## How to Run Tests
 
 ```powershell
-# Full test suite (234 tests)
+# Full test suite (303 tests)
 python -m pytest -q
 
 # Individual test file
@@ -142,7 +186,8 @@ See [docs/TESTING.md](docs/TESTING.md) for details.
 ## Security and Privacy
 
 - All processing is local; no data is transmitted over the network.
-- Only `.xlsx` files are accepted, with a 50 MB size limit per file.
+- Only `.xlsx` files are accepted, with a 50 MB compressed size limit and a 200 MB declared decompressed ZIP size limit per file.
+- Per-worksheet resource limits (250,000 rows, 1,000 columns, 5,000,000 cells) reject oversized input with a clear error instead of truncating it.
 - Uploaded files are validated for readability before processing.
 - All report text cells use formula-injection protection (`data_type='s'`).
 - Source workbooks are opened read-only and never modified.
@@ -153,7 +198,8 @@ See [docs/SECURITY.md](docs/SECURITY.md) for implemented protections and recomme
 ## Current Limitations
 
 - Only `.xlsx` files (no `.xls`, `.xlsm`, `.csv`, `.ods`).
-- Maximum 50 MB per file.
+- Maximum 50 MB compressed per file and 200 MB declared decompressed ZIP size per file.
+- Maximum 250,000 yielded rows, 250,000 actual data rows, 1,000 columns, and 5,000,000 cells per worksheet; oversized worksheets are rejected rather than truncated.
 - One worksheet per file per comparison run.
 - Exact-name column matching only (no fuzzy matching).
 - Comparison configuration is not persisted between browser sessions (Streamlit session state only).

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 import pandas as pd
 
 from excel_compare.comparer import compare_rows
@@ -319,3 +321,81 @@ def test_empty_compare_pairs_no_fields_compared():
     config = _config(compare_pairs=[])
     diffs = compare_rows(row_a, row_b, [], config)
     assert len(diffs) == 0
+
+
+# ---------------------------------------------------------------------------
+# Native date/datetime comparison regression tests (Issue 1)
+# ---------------------------------------------------------------------------
+
+
+def test_native_date_identical_equal():
+    """Identical native date values compare equal."""
+    row_a = _row({'d': date(2024, 1, 15)})
+    row_b = _row({'d': date(2024, 1, 15)})
+    config = _config(date_pairs=[ColumnPair('d', 'd')])
+    diffs = compare_rows(row_a, row_b, config.date_pairs, config)
+    assert len(diffs) == 1
+    assert diffs[0].are_equal is True
+    assert isinstance(diffs[0].value_a, date)
+    assert isinstance(diffs[0].value_b, date)
+
+
+def test_native_date_different_mismatch():
+    """Different native date values compare as mismatch."""
+    row_a = _row({'d': date(2024, 1, 15)})
+    row_b = _row({'d': date(2024, 2, 20)})
+    config = _config(date_pairs=[ColumnPair('d', 'd')])
+    diffs = compare_rows(row_a, row_b, config.date_pairs, config)
+    assert len(diffs) == 1
+    assert diffs[0].are_equal is False
+
+
+def test_native_datetime_identical_equal():
+    """Identical native datetime values compare equal."""
+    row_a = _row({'dt': datetime(2024, 1, 15, 9, 30, 0)})
+    row_b = _row({'dt': datetime(2024, 1, 15, 9, 30, 0)})
+    config = _config(date_pairs=[ColumnPair('dt', 'dt')])
+    diffs = compare_rows(row_a, row_b, config.date_pairs, config)
+    assert len(diffs) == 1
+    assert diffs[0].are_equal is True
+
+
+def test_native_datetime_different_mismatch():
+    """Different native datetime values compare as mismatch."""
+    row_a = _row({'dt': datetime(2024, 1, 15, 9, 30, 0)})
+    row_b = _row({'dt': datetime(2024, 1, 15, 10, 0, 0)})
+    config = _config(date_pairs=[ColumnPair('dt', 'dt')])
+    diffs = compare_rows(row_a, row_b, config.date_pairs, config)
+    assert len(diffs) == 1
+    assert diffs[0].are_equal is False
+
+
+def test_native_date_vs_datetime_not_equal():
+    """Native date vs native datetime at different times are not equal."""
+    row_a = _row({'d': date(2024, 1, 15)})
+    row_b = _row({'d': datetime(2024, 1, 15, 12, 0, 0)})
+    config = _config(date_pairs=[ColumnPair('d', 'd')])
+    diffs = compare_rows(row_a, row_b, config.date_pairs, config)
+    assert len(diffs) == 1
+    assert diffs[0].are_equal is False
+
+
+def test_native_date_vs_datetime_midnight_equal():
+    """Native date equals native datetime at midnight (same timestamp)."""
+    row_a = _row({'d': date(2024, 1, 15)})
+    row_b = _row({'d': datetime(2024, 1, 15, 0, 0, 0)})
+    config = _config(date_pairs=[ColumnPair('d', 'd')])
+    diffs = compare_rows(row_a, row_b, config.date_pairs, config)
+    assert len(diffs) == 1
+    assert diffs[0].are_equal is True
+
+
+def test_string_date_comparison_still_works():
+    """Existing string-based date comparison is not broken."""
+    row_a = _row({'date': '2024-01-15'})
+    row_b = _row({'date': '2024-01-15'})
+    config = _config(date_columns=['date'])
+    diffs = compare_rows(row_a, row_b, ['date'], config)
+    assert diffs[0].are_equal is True
+    assert diffs[0].value_a == '2024-01-15'
+    assert diffs[0].value_b == '2024-01-15'

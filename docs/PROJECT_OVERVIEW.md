@@ -85,7 +85,7 @@ Project metadata: name `excel-comparison-automation`, version `0.1.0`.
 - Run the comparison and view a dashboard with summary metrics.
 - Preview results in five tabs: Unchanged Records, Records With Changes, Missing From File B, New Records in File B, Records Needing Attention.
 - Download a formatted six-sheet `.xlsx` report.
-- Run 234 unit tests with pytest; lint and format with ruff.
+- Run 303 unit tests with pytest; lint and format with ruff.
 
 ## Current Limitations
 

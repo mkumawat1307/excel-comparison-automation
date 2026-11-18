@@ -20,6 +20,10 @@ VALID_DUPLICATE_POLICIES: tuple[str, ...] = ('error',)
 DEFAULT_MAX_FILE_SIZE_MB: int = 50
 ALLOWED_EXTENSIONS: tuple[str, ...] = ('.xlsx',)
 MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024
+MAX_DECOMPRESSED_SIZE_BYTES: int = 200 * 1024 * 1024
+MAX_WORKSHEET_ROWS: int = 250_000
+MAX_WORKSHEET_COLUMNS: int = 1_000
+MAX_WORKSHEET_CELLS: int = 5_000_000
 
 REPORT_SHEETS: tuple[str, ...] = (
     'Comparison Overview',

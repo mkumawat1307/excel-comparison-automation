@@ -117,7 +117,7 @@ All tests are written with pytest and live in `tests/unit/`.
 python -m pytest -q
 ```
 
-Expected output: all tests pass (234 tests as of the current release).
+Expected output: all tests pass (303 tests as of the current release).
 
 ### Run an individual test file
 

@@ -233,15 +233,27 @@ def _build_key_tuples(
         key_vals: List[Any] = []
         for k in columns:
             v = row[k]
-            # Normalize pandas NaN to None for consistent missing handling.
-            if isinstance(v, float) and pd.isna(v):
-                v = None
-            if isinstance(v, str):
+            # Normalize all pandas missing-value representations to None
+            # for consistent missing-handling (None, NaN, pd.NA, pd.NaT).
+            try:
+                if pd.isna(v):
+                    v = None
+            except (TypeError, ValueError):
+                pass
+            if v is None:
+                key_vals.append(None)
+            elif isinstance(v, str):
                 if normalize_whitespace:
                     v = v.strip()
                 if not case_sensitive:
                     v = v.lower()
-            key_vals.append(v)
+                key_vals.append(v)
+            else:
+                # Canonicalize non-string key values to str for matching
+                # identity, preserving existing behaviour where numeric 123
+                # and text "123" match. Original native types remain in the
+                # DataFrame and are exposed in reports.
+                key_vals.append(str(v))
         tuples.append(tuple(key_vals))
     return tuples
 
@@ -251,8 +263,11 @@ def _key_is_missing(key_tuple: Tuple[Any, ...]) -> bool:
     for value in key_tuple:
         if value is None:
             return True
-        if isinstance(value, float) and pd.isna(value):
-            return True
+        try:
+            if pd.isna(value):
+                return True
+        except (TypeError, ValueError):
+            pass
         if isinstance(value, str) and value.strip() == '':
             return True
     return False
@@ -506,102 +521,110 @@ def match_on_keys(
         key_to_indices_b.setdefault(kt, []).append(pos)
 
     # Build duplicate groups and source records for ambiguous keys.
+    # Iterate valid rows in original order so groups are ordered by
+    # first appearance. Sets are used only for membership checks.
     duplicate_groups_a: List[DuplicateGroup] = []
     duplicate_source_records_a: List[DuplicateSourceRecord] = []
     duplicate_groups_b: List[DuplicateGroup] = []
     duplicate_source_records_b: List[DuplicateSourceRecord] = []
 
-    for kt in ambiguous_keys:
-        # File A records with this ambiguous key.
-        if kt in key_to_indices_a:
-            orig_indices_a = [valid_to_orig_a[p] for p in key_to_indices_a[kt]]
-            duplicate_groups_a.append(
-                DuplicateGroup(
+    seen_ambiguous_a: set = set()
+    for pos in valid_row_indices_a:
+        kt = key_tuples_a[pos]
+        if kt not in ambiguous_keys or kt in seen_ambiguous_a:
+            continue
+        seen_ambiguous_a.add(kt)
+        orig_indices_a = [valid_to_orig_a[p] for p in key_to_indices_a[kt]]
+        duplicate_groups_a.append(
+            DuplicateGroup(
+                key_values=kt,
+                key_display=_key_display(kt, resolved_key_pairs),
+                file='A',
+                occurrences=len(orig_indices_a),
+                row_indices=orig_indices_a,
+            )
+        )
+        for orig_idx in key_to_indices_a[kt]:
+            row = df_a.iloc[orig_idx]
+            duplicate_source_records_a.append(
+                DuplicateSourceRecord(
+                    source_file='A',
+                    original_index=int(df_a.index[orig_idx]),
+                    excel_row_number=(
+                        excel_row_mapping_a.get(int(df_a.index[orig_idx]))
+                        if excel_row_mapping_a
+                        else None
+                    ),
                     key_values=kt,
                     key_display=_key_display(kt, resolved_key_pairs),
-                    file='A',
-                    occurrences=len(orig_indices_a),
-                    row_indices=orig_indices_a,
+                    group_occurrence_count=len(key_to_indices_a[kt]),
+                    all_column_values=row.to_dict(),
                 )
             )
-            for orig_idx in key_to_indices_a[kt]:
-                row = df_a.iloc[orig_idx]
-                duplicate_source_records_a.append(
-                    DuplicateSourceRecord(
-                        source_file='A',
-                        original_index=int(df_a.index[orig_idx]),
-                        excel_row_number=(
-                            excel_row_mapping_a.get(int(df_a.index[orig_idx]))
-                            if excel_row_mapping_a
-                            else None
-                        ),
-                        key_values=kt,
-                        key_display=_key_display(kt, resolved_key_pairs),
-                        group_occurrence_count=len(key_to_indices_a[kt]),
-                        all_column_values=row.to_dict(),
-                    )
-                )
 
-        # File B records with this ambiguous key.
-        if kt in key_to_indices_b:
-            orig_indices_b = [valid_to_orig_b[p] for p in key_to_indices_b[kt]]
-            duplicate_groups_b.append(
-                DuplicateGroup(
+    seen_ambiguous_b: set = set()
+    for pos in valid_row_indices_b:
+        kt = key_tuples_b[pos]
+        if kt not in ambiguous_keys or kt in seen_ambiguous_b:
+            continue
+        seen_ambiguous_b.add(kt)
+        orig_indices_b = [valid_to_orig_b[p] for p in key_to_indices_b[kt]]
+        duplicate_groups_b.append(
+            DuplicateGroup(
+                key_values=kt,
+                key_display=_key_display(kt, resolved_key_pairs),
+                file='B',
+                occurrences=len(orig_indices_b),
+                row_indices=orig_indices_b,
+            )
+        )
+        for orig_idx in key_to_indices_b[kt]:
+            row = df_b.iloc[orig_idx]
+            duplicate_source_records_b.append(
+                DuplicateSourceRecord(
+                    source_file='B',
+                    original_index=int(df_b.index[orig_idx]),
+                    excel_row_number=(
+                        excel_row_mapping_b.get(int(df_b.index[orig_idx]))
+                        if excel_row_mapping_b
+                        else None
+                    ),
                     key_values=kt,
                     key_display=_key_display(kt, resolved_key_pairs),
-                    file='B',
-                    occurrences=len(orig_indices_b),
-                    row_indices=orig_indices_b,
+                    group_occurrence_count=len(key_to_indices_b[kt]),
+                    all_column_values=row.to_dict(),
                 )
             )
-            for orig_idx in key_to_indices_b[kt]:
-                row = df_b.iloc[orig_idx]
-                duplicate_source_records_b.append(
-                    DuplicateSourceRecord(
-                        source_file='B',
-                        original_index=int(df_b.index[orig_idx]),
-                        excel_row_number=(
-                            excel_row_mapping_b.get(int(df_b.index[orig_idx]))
-                            if excel_row_mapping_b
-                            else None
-                        ),
-                        key_values=kt,
-                        key_display=_key_display(kt, resolved_key_pairs),
-                        group_occurrence_count=len(key_to_indices_b[kt]),
-                        all_column_values=row.to_dict(),
-                    )
-                )
 
-    # Classify unambiguous keys: keys appearing exactly once in both files,
-    # and not duplicated on either side.
+    # Classify unambiguous keys. Sets are used only for O(1) membership
+    # checks; rows are iterated in original DataFrame order so output
+    # ordering is deterministic and follows the source workbooks.
     all_keys_a = set(key_to_indices_a.keys())
     all_keys_b = set(key_to_indices_b.keys())
-
-    unambiguous_keys = (all_keys_a & all_keys_b) - ambiguous_keys
 
     matched_pairs: List[Tuple[pd.Series, pd.Series]] = []
     only_in_a_unique: List[pd.Series] = []
     only_in_b_unique: List[pd.Series] = []
 
-    # Matched pairs: keys appearing exactly once in both files.
-    for kt in unambiguous_keys:
-        idx_a = key_to_indices_a[kt][0]
-        idx_b = key_to_indices_b[kt][0]
-        matched_pairs.append((df_a.iloc[idx_a], df_b.iloc[idx_b]))
+    # Matched pairs and Only-in-A: iterate File A rows in original order.
+    for pos in valid_row_indices_a:
+        kt = key_tuples_a[pos]
+        if kt in ambiguous_keys:
+            continue
+        if kt in all_keys_b:
+            idx_a = pos
+            idx_b = key_to_indices_b[kt][0]
+            matched_pairs.append((df_a.iloc[idx_a], df_b.iloc[idx_b]))
+        else:
+            only_in_a_unique.append(df_a.iloc[pos])
 
-    # Only in A: keys in A but not in B, and not ambiguous.
-    only_a_keys = (all_keys_a - all_keys_b) - ambiguous_keys
-    for kt in only_a_keys:
-        for pos in key_to_indices_a[kt]:
-            orig_idx = valid_to_orig_a[pos]
-            only_in_a_unique.append(df_a.iloc[orig_idx])
-
-    # Only in B: keys in B but not in A, and not ambiguous.
-    only_b_keys = (all_keys_b - all_keys_a) - ambiguous_keys
-    for kt in only_b_keys:
-        for pos in key_to_indices_b[kt]:
-            orig_idx = valid_to_orig_b[pos]
-            only_in_b_unique.append(df_b.iloc[orig_idx])
+    # Only in B: iterate File B rows in original order.
+    for pos in valid_row_indices_b:
+        kt = key_tuples_b[pos]
+        if kt in ambiguous_keys:
+            continue
+        if kt not in all_keys_a:
+            only_in_b_unique.append(df_b.iloc[pos])
 
     # Build schema diff.
     schema_diff = build_schema_diff(df_a, df_b, resolved_key_pairs, resolved_compare_pairs)

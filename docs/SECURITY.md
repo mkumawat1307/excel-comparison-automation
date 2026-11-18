@@ -15,9 +15,13 @@ Every uploaded file is validated before processing by `validate_uploaded_file()`
 | Extension | Must be `.xlsx` (case-insensitive) | `SecurityError` |
 | Non-empty | File size must be greater than 0 bytes | `SecurityError` |
 | Size limit | Maximum 50 MB (`50 * 1024 * 1024` bytes) | `SecurityError` |
+| Decompressed size limit | Sum of ZIP central-directory uncompressed sizes must not exceed 200 MB (`200 * 1024 * 1024` bytes) | `SecurityError` |
+| Valid ZIP archive | File must parse as a ZIP archive; malformed archives are rejected | `SecurityError` |
 | Readability | Must open as a valid workbook via `openpyxl.load_workbook(read_only=True, data_only=True)` | `SecurityError` |
 
 The file is opened read-only with `data_only=True`, so it is never modified during validation.
+
+The decompressed-size guard sums `ZipInfo.file_size` from the archive's central directory before the workbook is opened, bounding ZIP-bomb style expansion. This value is declared metadata from the archive index; it is a fast pre-open guard and does not by itself verify archive integrity or the actual decompressed byte count. It sits behind the 50 MB compressed-size limit. A malformed (non-ZIP) file raises `SecurityError` (`File is not a valid ZIP archive`) at this step, before the readability check.
 
 ### 2. Streamlit Upload Validation (`streamlit_app.py`)
 
@@ -56,6 +60,33 @@ All untrusted text values written to the Excel report are written as explicit Op
 - No data is transmitted over the network.
 - No telemetry or reporting to external services.
 
+### 7. Worksheet Resource Limits (`loader.py`)
+
+To prevent a single worksheet from exhausting memory or CPU, `load_sheet_with_metadata()` enforces hard limits while iterating rows. Limits are defined in `src/excel_compare/config.py`:
+
+| Limit | Constant | Value |
+|-------|----------|-------|
+| Yielded rows | `MAX_WORKSHEET_ROWS` | 250,000 |
+| Actual data rows | `MAX_WORKSHEET_ROWS` | 250,000 |
+| Columns | `MAX_WORKSHEET_COLUMNS` | 1,000 |
+| Cells | `MAX_WORKSHEET_CELLS` | 5,000,000 |
+
+How content is counted, matching the implementation:
+
+- **Yielded rows** counts every row returned by iteration, including empty rows, and is checked before a row is processed or retained.
+- **Actual data rows** counts rows with at least one non-empty value.
+- **Columns** bounds the width of each yielded row (including formatting-only cells) and the highest column index holding a non-empty value.
+- **Cells** sums the width of each row that contains at least one non-empty value.
+- An empty row does not count toward actual data rows or cells. An empty cell inside a data row is preserved as `None` and still contributes to width and cell counts. A formatting-only cell contributes to width and cell counts but does not by itself make a row count as data.
+
+Exceeding any limit raises `LoadError` naming the specific limit. Oversized worksheets are **rejected, never silently truncated**.
+
+### 8. Worksheet Dimension Protection (`loader.py`)
+
+Excel's `<dimension>` element declares a worksheet's used range, but this metadata is not trustworthy: it can be inflated, underreported, or absent. Relying on it would either reject small valid worksheets (inflated) or silently drop real data (underreported/missing).
+
+Before iterating, the loader calls `worksheet.reset_dimensions()`, which clears the cached dimension so `iter_rows()` walks the actual worksheet XML and sizes each row to its true last cell. This neutralizes inflated, underreported, and missing dimensions, after which the resource limits in section 7 are enforced on the real data encountered. A worksheet that exceeds a limit is rejected with a clear `LoadError` rather than being silently truncated.
+
 ## Security Tests
 
 `tests/unit/test_security.py` covers:
@@ -64,7 +95,16 @@ All untrusted text values written to the Excel report are written as explicit Op
 - `test_validate_directory` — `SecurityError` for directory path.
 - `test_validate_unsupported_extension` — `SecurityError` for `.csv`.
 - `test_validate_empty_file` — `SecurityError` for empty file.
-- `test_validate_unreadable_workbook` — `SecurityError` for non-Excel content with `.xlsx` extension.
+- `test_validate_unreadable_workbook` — `SecurityError` (`not a valid ZIP archive`) for non-Excel content with an `.xlsx` extension.
+- `test_validate_decompressed_size_within_limit` — a normal workbook passes the decompressed-size check.
+- `test_validate_decompressed_size_exceeded` — a ZIP-bomb style archive whose declared decompressed size exceeds 200 MB is rejected.
+
+`tests/unit/test_loader.py` additionally covers the worksheet resource limits and dimension protection:
+
+- `test_load_worksheet_exceeds_max_rows`, `test_load_worksheet_exceeds_max_columns`, `test_load_worksheet_exceeds_max_cells` — each limit raises `LoadError` with the corresponding message.
+- `test_load_worksheet_large_empty_row_gaps` — large empty row gaps are bounded by the yielded-row limit.
+- `test_load_worksheet_formatting_only_row`, `test_load_worksheet_within_limits` — formatting-only cells and within-limit worksheets load as expected.
+- `test_load_worksheet_inflated_dimension_small_data`, `test_load_worksheet_underreported_dimension`, `test_load_worksheet_missing_dimension` — inflated, underreported, and missing `<dimension>` metadata do not reject valid data or hide real rows.
 
 ## Recommended Future Improvements (Not Implemented)
 

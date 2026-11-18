@@ -8,12 +8,13 @@ Guarantees:
 """
 
 import shutil
+import zipfile
 from pathlib import Path
 from typing import Union
 
 import openpyxl
 
-from .config import ALLOWED_EXTENSIONS, MAX_FILE_SIZE_BYTES
+from .config import ALLOWED_EXTENSIONS, MAX_DECOMPRESSED_SIZE_BYTES, MAX_FILE_SIZE_BYTES
 from .exceptions import SecurityError
 
 
@@ -45,6 +46,20 @@ def validate_uploaded_file(file_path: Union[str, Path]) -> Path:
         raise SecurityError(  # noqa: TRY003
             f'File exceeds maximum size of {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB: {path}'
         )
+
+    # Decompressed size check (ZIP bomb protection)
+    try:
+        with zipfile.ZipFile(path) as zf:
+            decompressed_size = sum(info.file_size for info in zf.infolist())
+        if decompressed_size > MAX_DECOMPRESSED_SIZE_BYTES:
+            raise SecurityError(  # noqa: TRY003
+                f'File decompressed size exceeds maximum of '
+                f'{MAX_DECOMPRESSED_SIZE_BYTES // (1024 * 1024)} MB: {path}'
+            )
+    except zipfile.BadZipFile as exc:
+        raise SecurityError(  # noqa: TRY003
+            f'File is not a valid ZIP archive: {path} ({exc})'
+        ) from exc
 
     # Readability check — attempt to load the workbook without modifying it
     try:

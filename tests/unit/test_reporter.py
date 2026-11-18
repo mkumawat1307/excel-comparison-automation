@@ -871,3 +871,227 @@ def test_build_report_data_quality_preserves_per_file_keys():
     assert len(missing_issues) == 1
     assert missing_issues[0].key_values_a == ()
     assert missing_issues[0].key_values_b == ('',)
+
+
+# ---------------------------------------------------------------------------
+# Record ordering regression tests (Issue 3)
+# Verify build_report preserves matcher output order.
+# ---------------------------------------------------------------------------
+
+
+def test_report_matched_records_preserve_order():
+    """Matched records order follows matcher output order."""
+    row_a1 = _row({'id': 'C', 'name': 'Carol'})
+    row_b1 = _row({'id': 'C', 'name': 'Carol'})
+    row_a2 = _row({'id': 'A', 'name': 'Alice'})
+    row_b2 = _row({'id': 'A', 'name': 'Alice'})
+    row_a3 = _row({'id': 'B', 'name': 'Bob'})
+    row_b3 = _row({'id': 'B', 'name': 'Bob'})
+    key_pairs = [ColumnPair('id', 'id')]
+    compare_pairs = [ColumnPair('name', 'name')]
+    config = _config(keys=[], key_pairs=key_pairs, compare_pairs=compare_pairs)
+
+    match_result = MatchResult(
+        matched_pairs=[(row_a1, row_b1), (row_a2, row_b2), (row_a3, row_b3)],
+        only_in_a_unique=[],
+        only_in_b_unique=[],
+        duplicate_groups_a=[],
+        duplicate_groups_b=[],
+        duplicate_source_records_a=[],
+        duplicate_source_records_b=[],
+        missing_key_records_a=[],
+        missing_key_records_b=[],
+        schema_diff=SchemaDiff(
+            common_columns=['id', 'name'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['id'],
+            compare_columns=['name'],
+        ),
+    )
+
+    cell_diffs = [
+        [
+            CellDiff(
+                column_a='name',
+                column_b='name',
+                row_key="id='C'",
+                sheet='',
+                value_a='Carol',
+                value_b='Carol',
+                are_equal=True,
+            )
+        ],
+        [
+            CellDiff(
+                column_a='name',
+                column_b='name',
+                row_key="id='A'",
+                sheet='',
+                value_a='Alice',
+                value_b='Alice',
+                are_equal=True,
+            )
+        ],
+        [
+            CellDiff(
+                column_a='name',
+                column_b='name',
+                row_key="id='B'",
+                sheet='',
+                value_a='Bob',
+                value_b='Bob',
+                are_equal=True,
+            )
+        ],
+    ]
+
+    result = build_report(match_result, cell_diffs, config)
+
+    assert len(result.matched) == 3
+    assert result.matched[0].key_values_a == ('C',)
+    assert result.matched[1].key_values_a == ('A',)
+    assert result.matched[2].key_values_a == ('B',)
+
+
+def test_report_only_in_a_preserve_order():
+    """Only-in-A records order follows matcher output order."""
+    row_a1 = _row({'id': 'Z', 'name': 'Zara'})
+    row_a2 = _row({'id': 'A', 'name': 'Alice'})
+    row_a3 = _row({'id': 'M', 'name': 'Mallory'})
+    key_pairs = [ColumnPair('id', 'id')]
+    config = _config(keys=[], key_pairs=key_pairs, compare_pairs=[])
+
+    match_result = MatchResult(
+        matched_pairs=[],
+        only_in_a_unique=[row_a1, row_a2, row_a3],
+        only_in_b_unique=[],
+        duplicate_groups_a=[],
+        duplicate_groups_b=[],
+        duplicate_source_records_a=[],
+        duplicate_source_records_b=[],
+        missing_key_records_a=[],
+        missing_key_records_b=[],
+        schema_diff=SchemaDiff(
+            common_columns=['id', 'name'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['id'],
+            compare_columns=[],
+        ),
+    )
+
+    result = build_report(match_result, [], config)
+
+    assert len(result.only_in_a) == 3
+    assert result.only_in_a[0].key_values_a == ('Z',)
+    assert result.only_in_a[1].key_values_a == ('A',)
+    assert result.only_in_a[2].key_values_a == ('M',)
+
+
+def test_report_only_in_b_preserve_order():
+    """Only-in-B records order follows matcher output order."""
+    row_b1 = _row({'id': 'Z', 'name': 'Zara'})
+    row_b2 = _row({'id': 'A', 'name': 'Alice'})
+    row_b3 = _row({'id': 'M', 'name': 'Mallory'})
+    key_pairs = [ColumnPair('id', 'id')]
+    config = _config(keys=[], key_pairs=key_pairs, compare_pairs=[])
+
+    match_result = MatchResult(
+        matched_pairs=[],
+        only_in_a_unique=[],
+        only_in_b_unique=[row_b1, row_b2, row_b3],
+        duplicate_groups_a=[],
+        duplicate_groups_b=[],
+        duplicate_source_records_a=[],
+        duplicate_source_records_b=[],
+        missing_key_records_a=[],
+        missing_key_records_b=[],
+        schema_diff=SchemaDiff(
+            common_columns=['id', 'name'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['id'],
+            compare_columns=[],
+        ),
+    )
+
+    result = build_report(match_result, [], config)
+
+    assert len(result.only_in_b) == 3
+    assert result.only_in_b[0].key_values_b == ('Z',)
+    assert result.only_in_b[1].key_values_b == ('A',)
+    assert result.only_in_b[2].key_values_b == ('M',)
+
+
+def test_report_data_quality_preserve_order():
+    """Data quality issues preserve matcher output order (duplicates then missing keys)."""
+    dup_rec_a1 = DuplicateSourceRecord(
+        source_file='A',
+        original_index=0,
+        excel_row_number=2,
+        key_values=('DUP1',),
+        key_display="id='DUP1'",
+        group_occurrence_count=2,
+        all_column_values={'id': 'DUP1'},
+    )
+    dup_rec_a2 = DuplicateSourceRecord(
+        source_file='A',
+        original_index=2,
+        excel_row_number=4,
+        key_values=('DUP2',),
+        key_display="id='DUP2'",
+        group_occurrence_count=1,
+        all_column_values={'id': 'DUP2'},
+    )
+    missing_rec_b1 = MissingKeyRecord(
+        source_file='B',
+        original_index=5,
+        excel_row_number=7,
+        key_values=('',),
+        key_display="id=''",
+        all_column_values={'id': ''},
+    )
+    missing_rec_b2 = MissingKeyRecord(
+        source_file='B',
+        original_index=6,
+        excel_row_number=8,
+        key_values=('',),
+        key_display="id=''",
+        all_column_values={'id': ''},
+    )
+
+    match_result = MatchResult(
+        matched_pairs=[],
+        only_in_a_unique=[],
+        only_in_b_unique=[],
+        duplicate_groups_a=[],
+        duplicate_groups_b=[],
+        duplicate_source_records_a=[dup_rec_a1, dup_rec_a2],
+        duplicate_source_records_b=[],
+        missing_key_records_a=[],
+        missing_key_records_b=[missing_rec_b1, missing_rec_b2],
+        schema_diff=SchemaDiff(
+            common_columns=['id'],
+            only_in_a=[],
+            only_in_b=[],
+            key_columns=['id'],
+            compare_columns=[],
+        ),
+    )
+
+    result = build_report(
+        match_result, [], config=_config(key_pairs=[ColumnPair('id', 'id')], compare_pairs=[])
+    )
+
+    assert len(result.data_quality_issues) == 4
+    # Duplicates (File A) appear first, in matcher order
+    assert result.data_quality_issues[0].issue_type == 'DUPLICATE_KEY'
+    assert result.data_quality_issues[0].key_values_a == ('DUP1',)
+    assert result.data_quality_issues[1].issue_type == 'DUPLICATE_KEY'
+    assert result.data_quality_issues[1].key_values_a == ('DUP2',)
+    # Missing keys (File B) appear next, in matcher order
+    assert result.data_quality_issues[2].issue_type == 'MISSING_KEY'
+    assert result.data_quality_issues[2].key_values_b == ('',)
+    assert result.data_quality_issues[3].issue_type == 'MISSING_KEY'
+    assert result.data_quality_issues[3].key_values_b == ('',)

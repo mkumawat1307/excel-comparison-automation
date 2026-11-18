@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 import pandas as pd
 import pytest
 
@@ -365,6 +367,44 @@ def test_every_source_row_accounted_for():
         assert oid not in dup_ids_b
 
 
+def test_every_source_row_accounted_for_renamed():
+    """Each source row accounted for exactly once with renamed keys."""
+    df_a = _df(
+        [
+            {'Site ID': 'S1', 'Pole': 'P1', 'name': 'Alice'},
+            {'Site ID': 'S1', 'Pole': 'P1', 'name': 'Alice2'},
+            {'Site ID': 'S3', 'Pole': 'P3', 'name': 'Carol'},
+            {'Site ID': '', 'Pole': 'P4', 'name': 'Missing'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'Site Code': 'S1', 'Pole No': 'P1', 'name': 'Alice'},
+            {'Site Code': 'S2', 'Pole No': 'P2', 'name': 'Bob'},
+            {'Site Code': '', 'Pole No': 'P4', 'name': 'Missing2'},
+        ]
+    )
+    key_pairs = [_pair('Site ID', 'Site Code'), _pair('Pole', 'Pole No')]
+    config = ComparisonConfig(keys=[], key_pairs=key_pairs)
+    result = match_on_keys(df_a, df_b, key_pairs=key_pairs, config=config)
+
+    a_accounted = (
+        len(result.matched_pairs)
+        + len(result.only_in_a_unique)
+        + len(result.duplicate_source_records_a)
+        + len(result.missing_key_records_a)
+    )
+    assert a_accounted == 4
+
+    b_accounted = (
+        len(result.matched_pairs)
+        + len(result.only_in_b_unique)
+        + len(result.duplicate_source_records_b)
+        + len(result.missing_key_records_b)
+    )
+    assert b_accounted == 3
+
+
 def _pair(a_col: str, b_col: str) -> ColumnPair:
     return ColumnPair(file_a_column=a_col, file_b_column=b_col)
 
@@ -534,39 +574,470 @@ def test_discover_auto_pairs_exact_name_only():
     assert ColumnPair(file_a_column='Name', file_b_column='Name') in pairs
 
 
-def test_every_source_row_accounted_for_renamed():
-    """Each source row accounted for exactly once with renamed keys."""
+# ---------------------------------------------------------------------------
+# Matching policy regression tests (Issue 1)
+# Numeric vs text key matching preserves existing behaviour via str
+# canonicalization of key identities.
+# ---------------------------------------------------------------------------
+
+
+def test_numeric_key_matches_text_key():
+    """Numeric 123 matches text '123' (existing behaviour preserved)."""
+    df_a = _df([{'id': 123, 'name': 'Alice'}])
+    df_b = _df([{'id': '123', 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 1
+    assert len(result.only_in_a_unique) == 0
+    assert len(result.only_in_b_unique) == 0
+
+
+def test_numeric_key_vs_leading_zero_text_key_not_match():
+    """Numeric 123 does NOT match text '00123'."""
+    df_a = _df([{'id': 123, 'name': 'Alice'}])
+    df_b = _df([{'id': '00123', 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 0
+    assert len(result.only_in_a_unique) == 1
+    assert len(result.only_in_b_unique) == 1
+
+
+def test_numeric_key_matches_numeric_key():
+    """Numeric 123 matches numeric 123."""
+    df_a = _df([{'id': 123, 'name': 'Alice'}])
+    df_b = _df([{'id': 123, 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 1
+
+
+def test_numeric_key_vs_float_key_not_match():
+    """Numeric 123 vs numeric 123.0 do not match (str(123) != str(123.0))."""
+    df_a = _df([{'id': 123, 'name': 'Alice'}])
+    df_b = _df([{'id': 123.0, 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 0
+    assert len(result.only_in_a_unique) == 1
+    assert len(result.only_in_b_unique) == 1
+
+
+def test_negative_numeric_key():
+    """Negative numeric keys match when equal."""
+    df_a = _df([{'id': -42, 'name': 'Alice'}])
+    df_b = _df([{'id': -42, 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 1
+
+
+def test_decimal_numeric_key():
+    """Decimal numeric keys match when equal."""
+    df_a = _df([{'id': 3.14, 'name': 'Alice'}])
+    df_b = _df([{'id': 3.14, 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 1
+
+
+def test_native_date_keys_match():
+    """Native date keys match when equal."""
+    df_a = _df([{'d': date(2024, 1, 15), 'name': 'Alice'}])
+    df_b = _df([{'d': date(2024, 1, 15), 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['d'], config=_config(keys=['d']))
+    assert len(result.matched_pairs) == 1
+
+
+def test_native_date_keys_different_not_match():
+    """Different native date keys do not match."""
+    df_a = _df([{'d': date(2024, 1, 15), 'name': 'Alice'}])
+    df_b = _df([{'d': date(2024, 2, 20), 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['d'], config=_config(keys=['d']))
+    assert len(result.matched_pairs) == 0
+    assert len(result.only_in_a_unique) == 1
+    assert len(result.only_in_b_unique) == 1
+
+
+def test_native_date_vs_datetime_keys_not_match():
+    """Native date vs datetime keys do not match (different string forms)."""
+    df_a = _df([{'d': date(2024, 1, 15), 'name': 'Alice'}])
+    df_b = _df([{'d': datetime(2024, 1, 15, 0, 0, 0), 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['d'], config=_config(keys=['d']))
+    assert len(result.matched_pairs) == 0
+    assert len(result.only_in_a_unique) == 1
+    assert len(result.only_in_b_unique) == 1
+
+
+def test_native_datetime_keys_match():
+    """Native datetime keys match when equal."""
+    df_a = _df([{'dt': datetime(2024, 1, 15, 9, 30, 0), 'name': 'Alice'}])
+    df_b = _df([{'dt': datetime(2024, 1, 15, 9, 30, 0), 'name': 'Alice'}])
+    result = match_on_keys(df_a, df_b, keys=['dt'], config=_config(keys=['dt']))
+    assert len(result.matched_pairs) == 1
+
+
+# ---------------------------------------------------------------------------
+# Record ordering regression tests (Issue 3)
+# Deliberately unsorted IDs to verify output follows source row order.
+# ---------------------------------------------------------------------------
+
+
+def test_matched_pairs_preserve_file_a_order():
+    """Matched pairs must follow File A row order, not set iteration order."""
     df_a = _df(
         [
-            {'Site ID': 'S1', 'Pole': 'P1', 'name': 'Alice'},
-            {'Site ID': 'S1', 'Pole': 'P1', 'name': 'Alice2'},
-            {'Site ID': 'S3', 'Pole': 'P3', 'name': 'Carol'},
-            {'Site ID': '', 'Pole': 'P4', 'name': 'Missing'},
+            {'id': 'C', 'name': 'Carol'},
+            {'id': 'A', 'name': 'Alice'},
+            {'id': 'B', 'name': 'Bob'},
         ]
     )
     df_b = _df(
         [
-            {'Site Code': 'S1', 'Pole No': 'P1', 'name': 'Alice'},
-            {'Site Code': 'S2', 'Pole No': 'P2', 'name': 'Bob'},
-            {'Site Code': '', 'Pole No': 'P4', 'name': 'Missing2'},
+            {'id': 'A', 'name': 'Alice'},
+            {'id': 'B', 'name': 'Bob'},
+            {'id': 'C', 'name': 'Carol'},
         ]
     )
-    key_pairs = [_pair('Site ID', 'Site Code'), _pair('Pole', 'Pole No')]
-    config = ComparisonConfig(keys=[], key_pairs=key_pairs)
-    result = match_on_keys(df_a, df_b, key_pairs=key_pairs, config=config)
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 3
+    assert result.matched_pairs[0][0]['id'] == 'C'
+    assert result.matched_pairs[1][0]['id'] == 'A'
+    assert result.matched_pairs[2][0]['id'] == 'B'
 
+
+def test_only_in_a_preserves_file_a_order():
+    """Only-in-A records must follow File A row order."""
+    df_a = _df(
+        [
+            {'id': 'Z', 'name': 'Zara'},
+            {'id': 'A', 'name': 'Alice'},
+            {'id': 'M', 'name': 'Mallory'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': 'X', 'name': 'Xander'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.only_in_a_unique) == 3
+    assert result.only_in_a_unique[0]['id'] == 'Z'
+    assert result.only_in_a_unique[1]['id'] == 'A'
+    assert result.only_in_a_unique[2]['id'] == 'M'
+
+
+def test_only_in_b_preserves_file_b_order():
+    """Only-in-B records must follow File B row order."""
+    df_a = _df(
+        [
+            {'id': 'X', 'name': 'Xander'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': 'Z', 'name': 'Zara'},
+            {'id': 'A', 'name': 'Alice'},
+            {'id': 'M', 'name': 'Mallory'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.only_in_b_unique) == 3
+    assert result.only_in_b_unique[0]['id'] == 'Z'
+    assert result.only_in_b_unique[1]['id'] == 'A'
+    assert result.only_in_b_unique[2]['id'] == 'M'
+
+
+def test_duplicate_records_preserve_file_order():
+    """Duplicate source records follow File A order, then File B order,
+    with groups ordered by first appearance in each workbook."""
+    df_a = _df(
+        [
+            {'id': 'DUP1', 'name': 'First'},
+            {'id': 'DUP2', 'name': 'Second'},
+            {'id': 'DUP1', 'name': 'FirstAgain'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': 'DUP2', 'name': 'BSecond'},
+            {'id': 'DUP1', 'name': 'BFirst'},
+        ]
+    )
+    result = match_on_keys(
+        df_a, df_b, keys=['id'], config=_config(keys=['id'], case_sensitive=True)
+    )
+
+    # DUP2 is unambiguous (once in each file) -> matched.
+    # DUP1 is ambiguous (twice in A, once in B) -> duplicates only.
+    assert len(result.matched_pairs) == 1
+    assert result.matched_pairs[0][0]['id'] == 'DUP2'
+    assert len(result.only_in_a_unique) == 0
+    assert len(result.only_in_b_unique) == 0
+
+    # File A duplicate groups: only DUP1 (ambiguous)
+    assert len(result.duplicate_groups_a) == 1
+    assert result.duplicate_groups_a[0].key_values == ('DUP1',)
+    assert result.duplicate_groups_a[0].occurrences == 2
+
+    # File A duplicate source records in row order
+    assert len(result.duplicate_source_records_a) == 2
+    assert result.duplicate_source_records_a[0].all_column_values['name'] == 'First'
+    assert result.duplicate_source_records_a[1].all_column_values['name'] == 'FirstAgain'
+
+    # File B duplicate groups: only DUP1 (ambiguous)
+    assert len(result.duplicate_groups_b) == 1
+    assert result.duplicate_groups_b[0].key_values == ('DUP1',)
+    assert result.duplicate_groups_b[0].occurrences == 1
+
+    # File B duplicate source records in row order
+    assert len(result.duplicate_source_records_b) == 1
+    assert result.duplicate_source_records_b[0].all_column_values['name'] == 'BFirst'
+
+
+def test_matching_deterministic_across_runs():
+    """Repeated calls produce identical ordering — no set-iteration drift."""
+    df_a = _df(
+        [
+            {'id': 'C', 'name': 'Carol'},
+            {'id': 'A', 'name': 'Alice'},
+            {'id': 'B', 'name': 'Bob'},
+            {'id': 'DUP', 'name': 'Dup1'},
+            {'id': 'DUP', 'name': 'Dup2'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': 'A', 'name': 'Alice'},
+            {'id': 'Z', 'name': 'Zara'},
+            {'id': 'DUP', 'name': 'BDup'},
+        ]
+    )
+
+    result1 = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    result2 = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+
+    def item_id(item):
+        if isinstance(item, tuple):
+            return item[0]['id']
+        return item['id']
+
+    assert [item_id(p) for p in result1.matched_pairs] == [
+        item_id(p) for p in result2.matched_pairs
+    ]
+    assert [r['id'] for r in result1.only_in_a_unique] == [
+        r['id'] for r in result2.only_in_a_unique
+    ]
+    assert [r['id'] for r in result1.only_in_b_unique] == [
+        r['id'] for r in result2.only_in_b_unique
+    ]
+    assert [r.all_column_values['id'] for r in result1.duplicate_source_records_a] == [
+        r.all_column_values['id'] for r in result2.duplicate_source_records_a
+    ]
+    assert [r.all_column_values['id'] for r in result1.duplicate_source_records_b] == [
+        r.all_column_values['id'] for r in result2.duplicate_source_records_b
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Missing-value handling regression tests (Issue 4)
+# None, float NaN, pd.NA, and pd.NaT must all be classified as missing keys
+# consistently, never matched, and never confused with literal text.
+# ---------------------------------------------------------------------------
+
+
+def test_pd_na_key_classified_as_missing():
+    """pd.NA key value must be classified as missing, not matched."""
+    df_a = _df(
+        [
+            {'id': pd.NA, 'name': 'Alice'},
+            {'id': '2', 'name': 'Bob'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': '2', 'name': 'Bob'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.missing_key_records_a) == 1
+    assert result.missing_key_records_a[0].key_values == (None,)
+    assert pd.isna(result.missing_key_records_a[0].all_column_values['id'])
+    assert result.missing_key_records_a[0].all_column_values['name'] == 'Alice'
+    assert len(result.matched_pairs) == 1
+    assert len(result.only_in_a_unique) == 0
+
+
+def test_pd_nat_key_classified_as_missing():
+    """pd.NaT key value must be classified as missing, not matched."""
+    df_a = _df(
+        [
+            {'id': pd.NaT, 'name': 'Alice'},
+            {'id': '2', 'name': 'Bob'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': '2', 'name': 'Bob'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.missing_key_records_a) == 1
+    assert result.missing_key_records_a[0].key_values == (None,)
+    assert len(result.matched_pairs) == 1
+    assert len(result.only_in_a_unique) == 0
+
+
+def test_float_nan_key_classified_as_missing():
+    """float NaN key value must be classified as missing, not matched."""
+    df_a = _df(
+        [
+            {'id': float('nan'), 'name': 'Alice'},
+            {'id': '2', 'name': 'Bob'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': '2', 'name': 'Bob'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.missing_key_records_a) == 1
+    assert result.missing_key_records_a[0].key_values == (None,)
+    assert len(result.matched_pairs) == 1
+    assert len(result.only_in_a_unique) == 0
+
+
+def test_pd_na_in_both_files_not_matched():
+    """pd.NA keys in both files must not match each other; both are missing."""
+    df_a = _df(
+        [
+            {'id': pd.NA, 'name': 'Alice'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': pd.NA, 'name': 'Bob'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.missing_key_records_a) == 1
+    assert len(result.missing_key_records_b) == 1
+    assert len(result.matched_pairs) == 0
+    assert len(result.only_in_a_unique) == 0
+    assert len(result.only_in_b_unique) == 0
+
+
+def test_pd_na_versus_ordinary_text_not_matched():
+    """pd.NA key must not match an ordinary text key."""
+    df_a = _df(
+        [
+            {'id': pd.NA, 'name': 'Alice'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': '123', 'name': 'Bob'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.missing_key_records_a) == 1
+    assert len(result.only_in_b_unique) == 1
+    assert len(result.matched_pairs) == 0
+
+
+def test_nullable_int64_column_with_pd_na():
+    """Nullable Int64 column containing pd.NA must classify missing rows correctly."""
+    df_a = pd.DataFrame({'id': pd.array([1, pd.NA, 3], dtype='Int64'), 'name': ['A', 'B', 'C']})
+    df_b = _df(
+        [
+            {'id': '1', 'name': 'A'},
+            {'id': '3', 'name': 'C'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    # pd.NA row is missing, not matched
+    assert len(result.missing_key_records_a) == 1
+    assert result.missing_key_records_a[0].all_column_values['name'] == 'B'
+    # Valid rows matched
+    assert len(result.matched_pairs) == 2
+    matched_ids = {p[0]['id'] for p in result.matched_pairs}
+    assert matched_ids == {1, 3}
+
+
+def test_missing_key_rows_not_in_only_in():
+    """Missing-key rows must not appear in only_in_a_unique or only_in_b_unique."""
+    df_a = _df(
+        [
+            {'id': '', 'name': 'Empty'},  # empty string -> missing
+            {'id': pd.NA, 'name': 'NA'},  # pd.NA -> missing
+            {'id': '1', 'name': 'Valid'},  # valid -> matched
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': '1', 'name': 'Valid'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.missing_key_records_a) == 2
+    assert len(result.matched_pairs) == 1
+    assert len(result.only_in_a_unique) == 0
+    assert all(r['id'] != '' for r in result.only_in_a_unique)
+
+
+def test_row_accounting_mixed_missing_types():
+    """All rows accounted for with None, pd.NA, pd.NaT and empty strings."""
+    df_a = _df(
+        [
+            {'id': None, 'name': 'NoneRow'},
+            {'id': pd.NA, 'name': 'NARow'},
+            {'id': pd.NaT, 'name': 'NaTRow'},
+            {'id': '', 'name': 'EmptyRow'},
+            {'id': '1', 'name': 'ValidRow'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': '1', 'name': 'ValidRow'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    # 4 missing-key records + 1 matched = 5 total File A rows
+    assert len(result.missing_key_records_a) == 4
+    assert len(result.matched_pairs) == 1
+    assert len(result.only_in_a_unique) == 0
     a_accounted = (
-        len(result.matched_pairs)
-        + len(result.only_in_a_unique)
-        + len(result.duplicate_source_records_a)
-        + len(result.missing_key_records_a)
+        len(result.matched_pairs) + len(result.only_in_a_unique) + len(result.missing_key_records_a)
     )
-    assert a_accounted == 4
+    assert a_accounted == 5
 
-    b_accounted = (
-        len(result.matched_pairs)
-        + len(result.only_in_b_unique)
-        + len(result.duplicate_source_records_b)
-        + len(result.missing_key_records_b)
+
+def test_literal_na_text_remains_valid_key():
+    """Literal text '<NA>' must remain a valid key, not confused with pd.NA."""
+    df_a = _df(
+        [
+            {'id': '<NA>', 'name': 'LiteralNA'},
+        ]
     )
-    assert b_accounted == 3
+    df_b = _df(
+        [
+            {'id': '<NA>', 'name': 'LiteralNA'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 1
+    assert len(result.missing_key_records_a) == 0
+    assert len(result.missing_key_records_b) == 0
+
+
+def test_literal_nat_text_remains_valid_key():
+    """Literal text 'NaT' must remain a valid key, not confused with pd.NaT."""
+    df_a = _df(
+        [
+            {'id': 'NaT', 'name': 'LiteralNaT'},
+        ]
+    )
+    df_b = _df(
+        [
+            {'id': 'NaT', 'name': 'LiteralNaT'},
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+    assert len(result.matched_pairs) == 1
+    assert len(result.missing_key_records_a) == 0
+    assert len(result.missing_key_records_b) == 0

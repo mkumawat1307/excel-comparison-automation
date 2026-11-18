@@ -178,7 +178,7 @@ Key functions:
 | `tests/unit/test_security.py` | File existence, directory rejection, unsupported extension, empty file, unreadable workbook. |
 | `tests/unit/test_streamlit_app.py` | App loading, widget rendering, session state, key/compare pair add/remove, navigation persistence, dashboard signals, end-to-end comparison. |
 
-Total: 234 tests (as of the current release), all passing.
+Total: 303 tests (as of the current release), all passing.
 
 ## Configuration File
 
