@@ -235,7 +235,9 @@ def load_sheet_with_metadata(
         If provided, all listed columns must exist in the sheet.
     track_excel_row : bool
         If True, build the DataFrame index -> physical Excel row number
-        mapping. Physical row 1 is the header; first data row is row 2.
+        mapping. Row numbers are the worksheet's actual physical rows, so
+        the header may be any row and leading blank rows or interior gaps
+        are preserved.
 
     Returns
     -------
@@ -284,20 +286,12 @@ def load_sheet_with_metadata(
         # Iterate rows as cell objects to preserve values and number formats.
         rows_iter = worksheet.iter_rows()
 
-        try:
-            header_row = next(rows_iter)
-        except StopIteration as exc:
-            raise LoadError(f"Worksheet '{sheet_name}' is empty.") from exc  # noqa: TRY003, B904
-
-        # After reset_dimensions(), missing XML rows yield empty tuples.
-        # Skip empty rows until the first row with at least one cell.
-        while not header_row or all(cell.value is None or cell.value == '' for cell in header_row):
-            try:
-                header_row = next(rows_iter)
-            except StopIteration as exc:
-                raise LoadError(f"Worksheet '{sheet_name}' is empty.") from exc  # noqa: TRY003, B904
-
-        headers = [str(h.value) if h.value is not None else '' for h in header_row]
+        # One counter bounds every yielded physical row: leading empty rows,
+        # the header, interior gaps, and data rows. reset_dimensions() makes
+        # iter_rows() yield one tuple per physical worksheet row starting at
+        # row 1, so this counter is also the physical Excel row number.
+        rows_yielded = 0
+        physical_row = 0
 
         # Read all data rows, resolving cell values and tracking physical row numbers.
         all_row_data: List[List[Any]] = []
@@ -305,23 +299,48 @@ def load_sheet_with_metadata(
         df_index = 0
 
         # Resource counters enforced during row iteration.
-        rows_yielded = 0
         actual_rows = 0
         actual_columns = 0
         actual_cells = 0
 
-        # Physical row 1 is the header; data starts at row 2.
-        physical_row = 2
-        for row_cells in rows_iter:
-            row_data = [_resolve_cell_value(cell) for cell in row_cells]
-
-            # Count every yielded row, including empty rows, to bound
-            # iteration over empty row gaps caused by inflated dimensions.
+        # Locate the header row, skipping leading empty rows. Every yielded row
+        # counts toward the row limit so leading blank rows cannot bypass it.
+        header_row = None
+        while True:
+            try:
+                header_row = next(rows_iter)
+            except StopIteration as exc:
+                raise LoadError(f"Worksheet '{sheet_name}' is empty.") from exc  # noqa: TRY003, B904
             rows_yielded += 1
+            physical_row += 1
             if rows_yielded > MAX_WORKSHEET_ROWS:
                 raise LoadError(  # noqa: TRY003
                     f"Worksheet '{sheet_name}' exceeds maximum of {MAX_WORKSHEET_ROWS} rows."
                 )
+            if header_row and any(
+                cell.value is not None and cell.value != '' for cell in header_row
+            ):
+                break
+
+        # Enforce the column limit on the header row as well as data rows.
+        if len(header_row) > MAX_WORKSHEET_COLUMNS:
+            raise LoadError(  # noqa: TRY003
+                f"Worksheet '{sheet_name}' exceeds maximum of {MAX_WORKSHEET_COLUMNS} columns."
+            )
+
+        headers = [str(h.value) if h.value is not None else '' for h in header_row]
+
+        for row_cells in rows_iter:
+            # Count every yielded row, including empty rows, so leading blanks,
+            # the header, and interior gaps share one row budget.
+            rows_yielded += 1
+            physical_row += 1
+            if rows_yielded > MAX_WORKSHEET_ROWS:
+                raise LoadError(  # noqa: TRY003
+                    f"Worksheet '{sheet_name}' exceeds maximum of {MAX_WORKSHEET_ROWS} rows."
+                )
+
+            row_data = [_resolve_cell_value(cell) for cell in row_cells]
 
             # Enforce maximum physical row width before processing,
             # including formatting-only cells that carry no data value.
@@ -330,9 +349,8 @@ def load_sheet_with_metadata(
                     f"Worksheet '{sheet_name}' exceeds maximum of {MAX_WORKSHEET_COLUMNS} columns."
                 )
 
-            # Check if the row is entirely empty (skip truly blank trailing rows).
+            # Check if the row is entirely empty (skip truly blank rows).
             if all(v is None or v == '' for v in row_data):
-                physical_row += 1
                 continue
 
             # Count actual data rows and cells before appending to memory.
@@ -361,7 +379,6 @@ def load_sheet_with_metadata(
             all_row_data.append(row_data)
             excel_row_mapping[df_index] = physical_row
             df_index += 1
-            physical_row += 1
 
         # Validate headers before applying column selection.
         _validate_headers(headers, sheet_name, all_row_data)

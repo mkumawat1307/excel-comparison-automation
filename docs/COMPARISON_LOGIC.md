@@ -6,7 +6,7 @@ This document explains how the comparison engine actually works, based on the so
 
 The comparison runs in three stages:
 
-1. **Loading** (`loader.py`): Worksheets are read into DataFrames. Original column names, values, and data types are preserved. Physical Excel row numbers are tracked separately (row 1 = header, first data row = row 2).
+1. **Loading** (`loader.py`): Worksheets are read into DataFrames. Original column names, values, and data types are preserved. Physical Excel row numbers are tracked separately and reflect each row's actual worksheet position, so leading blank rows before the header and interior gaps are preserved.
 2. **Matching** (`matcher.py`): Rows are classified as matched, only-in-A, only-in-B, duplicate, or missing-key based on configurable key column pairs.
 3. **Comparison** (`comparer.py`): Matched rows are compared cell-by-cell across configured comparison column pairs.
 4. **Report assembly** (`reporter.py`): Results are assembled into a `ComparisonResult` with plain-language status labels and summary metrics.

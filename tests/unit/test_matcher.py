@@ -789,6 +789,52 @@ def test_duplicate_records_preserve_file_order():
     assert result.duplicate_source_records_b[0].all_column_values['name'] == 'BFirst'
 
 
+def test_duplicate_group_row_indices_with_leading_missing_key_file_a():
+    """File A duplicate row_indices stay original when a missing key precedes them."""
+    df_a = _df(
+        [
+            {'id': '', 'name': 'missing'},  # index 0: missing key
+            {'id': '1', 'name': 'a1'},  # index 1: duplicate
+            {'id': '1', 'name': 'a2'},  # index 2: duplicate
+            {'id': '2', 'name': 'b1'},  # index 3: duplicate
+            {'id': '2', 'name': 'b2'},  # index 4: duplicate
+        ]
+    )
+    df_b = _df([{'id': '9', 'name': 'x'}])
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+
+    assert [group.row_indices for group in result.duplicate_groups_a] == [[1, 2], [3, 4]]
+    for group in result.duplicate_groups_a:
+        group_records = [
+            record
+            for record in result.duplicate_source_records_a
+            if record.key_values == group.key_values
+        ]
+        assert group.row_indices == [record.original_index for record in group_records]
+
+
+def test_duplicate_group_row_indices_with_leading_missing_key_file_b():
+    """File B duplicate row_indices stay original when a missing key precedes them."""
+    df_a = _df([{'id': '9', 'name': 'x'}])
+    df_b = _df(
+        [
+            {'id': '', 'name': 'missing'},  # index 0: missing key
+            {'id': '1', 'name': 'b1'},  # index 1: duplicate
+            {'id': '1', 'name': 'b2'},  # index 2: duplicate
+        ]
+    )
+    result = match_on_keys(df_a, df_b, keys=['id'], config=_config(keys=['id']))
+
+    assert [group.row_indices for group in result.duplicate_groups_b] == [[1, 2]]
+    group = result.duplicate_groups_b[0]
+    group_records = [
+        record
+        for record in result.duplicate_source_records_b
+        if record.key_values == group.key_values
+    ]
+    assert group.row_indices == [record.original_index for record in group_records]
+
+
 def test_matching_deterministic_across_runs():
     """Repeated calls produce identical ordering — no set-iteration drift."""
     df_a = _df(

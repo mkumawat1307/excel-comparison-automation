@@ -123,7 +123,7 @@ Two records are matched when their key column values are identical (after normal
 
 ### Excel Row References
 
-Every record-level sheet includes an "Excel Row" column that tells you the physical row number in the original source file (row 1 is the header, so the first data row is row 2). Use this to locate the record quickly in your source file.
+Every record-level sheet includes an "Excel Row" column that tells you the actual physical row number in the original source file, including any leading blank rows before the header. Use this to locate the record quickly in your source file.
 
 ---
 

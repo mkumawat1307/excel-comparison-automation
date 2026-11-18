@@ -499,17 +499,15 @@ def match_on_keys(
     valid_key_tuples_a = [key_tuples_a[i] for i in valid_row_indices_a]
     valid_key_tuples_b = [key_tuples_b[i] for i in valid_row_indices_b]
 
-    # Map from valid-row position to original df index.
-    valid_to_orig_a = {i: valid_row_indices_a[i] for i in range(len(valid_row_indices_a))}
-    valid_to_orig_b = {i: valid_row_indices_b[i] for i in range(len(valid_row_indices_b))}
-
     duplicates_a = detect_duplicates(valid_key_tuples_a)
     duplicates_b = detect_duplicates(valid_key_tuples_b)
 
     # Combined ambiguous keys: duplicated in either file.
     ambiguous_keys: set = set(duplicates_a.keys()) | set(duplicates_b.keys())
 
-    # Build lookup: key_tuple -> list of valid positions (for all valid rows).
+    # Build lookup: key_tuple -> list of original DataFrame positions for all
+    # valid rows. Positions are original (not compressed), so they are used
+    # directly with df.iloc and the Excel row mapping.
     key_to_indices_a: Dict[Tuple[Any, ...], List[int]] = {}
     for pos in valid_row_indices_a:
         kt = key_tuples_a[pos]
@@ -534,7 +532,7 @@ def match_on_keys(
         if kt not in ambiguous_keys or kt in seen_ambiguous_a:
             continue
         seen_ambiguous_a.add(kt)
-        orig_indices_a = [valid_to_orig_a[p] for p in key_to_indices_a[kt]]
+        orig_indices_a = list(key_to_indices_a[kt])
         duplicate_groups_a.append(
             DuplicateGroup(
                 key_values=kt,
@@ -568,7 +566,7 @@ def match_on_keys(
         if kt not in ambiguous_keys or kt in seen_ambiguous_b:
             continue
         seen_ambiguous_b.add(kt)
-        orig_indices_b = [valid_to_orig_b[p] for p in key_to_indices_b[kt]]
+        orig_indices_b = list(key_to_indices_b[kt])
         duplicate_groups_b.append(
             DuplicateGroup(
                 key_values=kt,

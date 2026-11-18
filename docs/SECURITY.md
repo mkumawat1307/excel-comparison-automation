@@ -73,9 +73,9 @@ To prevent a single worksheet from exhausting memory or CPU, `load_sheet_with_me
 
 How content is counted, matching the implementation:
 
-- **Yielded rows** counts every row returned by iteration, including empty rows, and is checked before a row is processed or retained.
+- **Yielded rows** counts every yielded physical worksheet row — leading blank rows, the header, interior gaps, and empty rows — and is checked before a row is processed or retained, including while searching for the header.
 - **Actual data rows** counts rows with at least one non-empty value.
-- **Columns** bounds the width of each yielded row (including formatting-only cells) and the highest column index holding a non-empty value.
+- **Columns** bounds the width of the header row and of each yielded data row (including formatting-only cells) and the highest column index holding a non-empty value.
 - **Cells** sums the width of each row that contains at least one non-empty value.
 - An empty row does not count toward actual data rows or cells. An empty cell inside a data row is preserved as `None` and still contributes to width and cell counts. A formatting-only cell contributes to width and cell counts but does not by itself make a row count as data.
 
@@ -103,6 +103,9 @@ Before iterating, the loader calls `worksheet.reset_dimensions()`, which clears 
 
 - `test_load_worksheet_exceeds_max_rows`, `test_load_worksheet_exceeds_max_columns`, `test_load_worksheet_exceeds_max_cells` — each limit raises `LoadError` with the corresponding message.
 - `test_load_worksheet_large_empty_row_gaps` — large empty row gaps are bounded by the yielded-row limit.
+- `test_load_worksheet_header_exceeds_max_columns`, `test_load_worksheet_header_at_max_columns_allowed` — the column limit also applies to the header row, and a header exactly at the limit loads.
+- `test_load_worksheet_leading_empty_rows_exceed_max_rows`, `test_load_worksheet_leading_empty_rows_within_limit` — leading blank rows count toward the yielded-row limit while the header is located.
+- `test_excel_row_mapping_header_on_first_row`, `test_excel_row_mapping_with_leading_and_interior_empty_rows` — physical Excel row numbers reflect leading blank rows and interior gaps.
 - `test_load_worksheet_formatting_only_row`, `test_load_worksheet_within_limits` — formatting-only cells and within-limit worksheets load as expected.
 - `test_load_worksheet_inflated_dimension_small_data`, `test_load_worksheet_underreported_dimension`, `test_load_worksheet_missing_dimension` — inflated, underreported, and missing `<dimension>` metadata do not reject valid data or hide real rows.
 

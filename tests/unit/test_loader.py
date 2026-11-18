@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from excel_compare.exceptions import LoadError
-from excel_compare.loader import list_sheets, load_sheet
+from excel_compare.loader import list_sheets, load_sheet, load_sheet_with_metadata
 
 
 def test_load_valid_file(make_excel_file):
@@ -570,3 +570,114 @@ def test_load_worksheet_within_limits(tmp_dir: Path, monkeypatch):
     df = load_sheet(path, 'Sheet1')
     assert list(df.columns) == ['ID', 'Name', 'Amount']
     assert len(df) == 1
+
+
+# ---------------------------------------------------------------------------
+# Header column limit regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_load_worksheet_header_exceeds_max_columns(tmp_dir: Path, monkeypatch):
+    """A header wider than the column limit is rejected even with narrow data."""
+    monkeypatch.setattr('excel_compare.loader.MAX_WORKSHEET_COLUMNS', 2)
+    path = tmp_dir / 'wide_header.xlsx'
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet('Sheet1')
+    for col, name in enumerate(['a', 'b', 'c', 'd'], start=1):
+        ws.cell(row=1, column=col, value=name)
+    ws['A2'] = 1  # data narrower than the header
+    wb.save(path)
+
+    with pytest.raises(LoadError, match='exceeds maximum of 2 columns'):
+        load_sheet(path, 'Sheet1')
+
+
+def test_load_worksheet_header_at_max_columns_allowed(tmp_dir: Path, monkeypatch):
+    """A header exactly at the column limit loads successfully."""
+    monkeypatch.setattr('excel_compare.loader.MAX_WORKSHEET_COLUMNS', 3)
+    path = tmp_dir / 'boundary_header.xlsx'
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet('Sheet1')
+    ws['A1'] = 'a'
+    ws['B1'] = 'b'
+    ws['C1'] = 'c'
+    ws['A2'] = 1
+    wb.save(path)
+
+    df = load_sheet(path, 'Sheet1')
+    assert list(df.columns) == ['a', 'b', 'c']
+    assert len(df) == 1
+
+
+# ---------------------------------------------------------------------------
+# Row-limit regression tests for leading empty rows
+# ---------------------------------------------------------------------------
+
+
+def test_load_worksheet_leading_empty_rows_exceed_max_rows(tmp_dir: Path, monkeypatch):
+    """Leading empty rows count toward the row limit while searching for the header."""
+    monkeypatch.setattr('excel_compare.loader.MAX_WORKSHEET_ROWS', 10)
+    path = tmp_dir / 'leading_empty.xlsx'
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet('Sheet1')
+    ws['A20'] = 'id'  # header far below the limit
+    ws['A21'] = 1
+    wb.save(path)
+
+    with pytest.raises(LoadError, match='exceeds maximum of 10 rows'):
+        load_sheet(path, 'Sheet1')
+
+
+def test_load_worksheet_leading_empty_rows_within_limit(tmp_dir: Path, monkeypatch):
+    """Leading empty rows within the limit still load successfully."""
+    monkeypatch.setattr('excel_compare.loader.MAX_WORKSHEET_ROWS', 10)
+    path = tmp_dir / 'leading_empty_ok.xlsx'
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet('Sheet1')
+    ws['A3'] = 'id'
+    ws['A4'] = 1
+    wb.save(path)
+
+    df = load_sheet(path, 'Sheet1')
+    assert len(df) == 1
+    assert df.iloc[0]['id'] == 1
+
+
+# ---------------------------------------------------------------------------
+# Physical Excel row mapping regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_excel_row_mapping_header_on_first_row(tmp_dir: Path):
+    """Header on row 1 maps the first data row to physical row 2."""
+    path = tmp_dir / 'row_map_basic.xlsx'
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet('Sheet1')
+    ws['A1'] = 'id'
+    ws['A2'] = 1
+    ws['A3'] = 2
+    wb.save(path)
+
+    loaded = load_sheet_with_metadata(path, 'Sheet1')
+    assert loaded.excel_row_mapping == {0: 2, 1: 3}
+
+
+def test_excel_row_mapping_with_leading_and_interior_empty_rows(tmp_dir: Path):
+    """Physical row numbers reflect leading blanks and interior gaps."""
+    path = tmp_dir / 'row_map_offset.xlsx'
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet('Sheet1')
+    ws['A3'] = 'id'  # header on physical row 3 (rows 1-2 empty)
+    ws['A4'] = 1  # data on row 4
+    ws['A6'] = 2  # data on row 6 (row 5 empty)
+    wb.save(path)
+
+    loaded = load_sheet_with_metadata(path, 'Sheet1')
+    assert loaded.excel_row_mapping == {0: 4, 1: 6}
+    assert list(loaded.df['id']) == [1, 2]

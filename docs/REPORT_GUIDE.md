@@ -54,7 +54,7 @@ This sheet lists records whose keys match in both files and whose compared value
 - **File B – {compare_col}**: The comparison value from File B. Because this is the Unchanged Records sheet, this equals the File A value (not shown separately to avoid duplication).
 - **File A – {col} / File B – {col} (unmapped)**: Columns from each file that were not selected as keys or comparison columns. Shown with their file prefix and original column name preserved exactly (spaces, underscores, acronyms unchanged).
 - **Record Status**: Plain-language status label (for unchanged records: "No changes").
-- **Excel Row (File A) / Excel Row (File B)**: Physical row number in the source worksheet (row 1 = header; first data row = row 2).
+- **Excel Row (File A) / Excel Row (File B)**: Physical row number in the source worksheet (the actual worksheet row, including any leading blank rows before the header).
 
 ## Sheet 3: Records With Changes
 

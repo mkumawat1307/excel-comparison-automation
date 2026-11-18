@@ -129,14 +129,14 @@ Loading a worksheet enforces the following limits (`src/excel_compare/config.py`
 
 | Limit | Value | What is counted |
 |-------|-------|-----------------|
-| Yielded rows | 250,000 | Every row returned by iteration, including empty rows. |
+| Yielded rows | 250,000 | Every yielded physical worksheet row: leading blank rows, the header, interior gaps, and empty rows. |
 | Actual data rows | 250,000 | Rows containing at least one non-empty value. |
-| Columns | 1,000 | Width of each yielded row, including formatting-only cells. |
+| Columns | 1,000 | Width of the header row and of each yielded data row, including formatting-only cells. |
 | Cells | 5,000,000 | Total cells across rows that contain at least one non-empty value. |
 
 How blank and formatting-only content is treated:
 
-- An **empty row** (no non-empty cell values) does not count toward actual data rows or cells, but it does count toward the yielded-row limit.
+- An **empty row** (no non-empty cell values) does not count toward actual data rows or cells, but it does count toward the yielded-row limit. Leading blank rows before the header and the header row itself also count toward the yielded-row limit, which is enforced while the header is being located.
 - An **empty cell** inside a data row is preserved as `None`; it contributes to that row's width and cell count.
 - A **formatting-only cell** (styled but with no value) contributes to the row width and cell count, but does not by itself make a row count as data.
 
